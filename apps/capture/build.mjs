@@ -7,7 +7,7 @@ const output = path.resolve(".vercel/output");
 const fn = path.join(output, "functions/api/snapshot.func");
 await fs.mkdir(path.join(fn, "runtime"), { recursive: true });
 await build({
-  entryPoints: ["api/snapshot.ts"],
+  entryPoints: ["src/handler.ts"],
   outfile: path.join(fn, "runtime/index.mjs"),
   bundle: true,
   platform: "node",

@@ -2,7 +2,7 @@ import type { IncomingMessage, ServerResponse } from "node:http";
 import { z } from "zod";
 import { canonical, equalSecret, sign } from "@revisionpay/domain/crypto";
 import { DomainError } from "@revisionpay/domain";
-import { collect } from "../src/collector";
+import { collect } from "./collector";
 
 const Input = z
   .object({ url: z.string().url().max(1000), requestId: z.string().uuid() })

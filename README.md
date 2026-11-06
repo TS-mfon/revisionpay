@@ -2,6 +2,8 @@
 
 Agree on a website revision, verify the delivered version, and collect the authorized PayPal payment when the agreed conditions are met.
 
+[Open RevisionPay](https://revisionpay.vercel.app) · [Source repository](https://github.com/TS-mfon/revisionpay)
+
 RevisionPay connects **PayPal sandbox authorizations and capture** with **GenLayer Studionet Intelligent Contracts**. A seller freezes 3–5 requirements for one public page and a fixed USD fee. The buyer accepts those terms and authorizes payment. The app captures the delivered page; GenLayer evaluates each requirement against immutable text and link evidence. A successful finalized PASS and a fresh matching page permit one full capture. An incomplete or uncertain revision remains uncharged. Buyers can request review or explicitly accept a captured revision themselves.
 
 This is a single-merchant hackathon prototype. All provider money calls are pinned to PayPal sandbox. Studionet is a development environment. The public **Demo simulation** uses deterministic fixtures for both payments and verification, clearly labeled throughout the interface; it is useful for trying the workflow without accounts but is not proof of a PayPal or blockchain transaction.

@@ -96,6 +96,7 @@ test("a failed revision stays uncharged; a corrected revision produces a receipt
 test("rejects cross-origin mutations and keeps demo tenants private", async ({
   request,
   browser,
+  baseURL,
 }) => {
   const rejected = await request.post("/api/demo", {
     data: {},
@@ -105,17 +106,17 @@ test("rejects cross-origin mutations and keeps demo tenants private", async ({
   const first = await browser.newContext();
   const second = await browser.newContext();
   try {
-    const created = await first.request.post("http://localhost:3100/api/demo", {
+    const created = await first.request.post(baseURL + "/api/demo", {
       data: {},
-      headers: { Origin: "http://localhost:3100" },
+      headers: { Origin: baseURL! },
     });
     const { agreement } = await created.json();
-    await second.request.post("http://localhost:3100/api/demo", {
+    await second.request.post(baseURL + "/api/demo", {
       data: {},
-      headers: { Origin: "http://localhost:3100" },
+      headers: { Origin: baseURL! },
     });
     const hidden = await second.request.get(
-      "http://localhost:3100/api/agreements/" + agreement.id,
+      baseURL + "/api/agreements/" + agreement.id,
     );
     expect(hidden.status()).toBe(404);
   } finally {

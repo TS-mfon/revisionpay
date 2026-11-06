@@ -1,7 +1,7 @@
 import { createServer } from "node:http";
 import { config } from "dotenv";
 import path from "node:path";
-import handler from "../api/snapshot";
+import handler from "./handler";
 config({ path: path.resolve(process.cwd(), "../../.env.local"), quiet: true });
 const server = createServer((req, res) => {
   if (req.url !== "/api/snapshot") {
