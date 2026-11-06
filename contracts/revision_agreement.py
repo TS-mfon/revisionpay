@@ -104,7 +104,8 @@ class RevisionAgreementV1(gl.Contract):
         baseline = json.loads(self.baseline_json)
         terms = json.loads(self.terms_json)
         check_evidence(evidence)
-        if evidence["artifactHash"] != artifact_hash or evidence["sourceUrl"] != terms["sourceUrl"] or evidence["finalUrl"] != terms["sourceUrl"]:
+        expected_final_url = baseline["finalUrl"] if terms.get("schemaVersion") == "2" else terms["sourceUrl"]
+        if evidence["artifactHash"] != artifact_hash or evidence["sourceUrl"] != terms["sourceUrl"] or evidence["finalUrl"] != expected_final_url:
             raise gl.UserError("Evidence belongs to another source")
         for stored in results.values():
             if json.loads(stored).get("contentHash") == evidence["contentHash"]:

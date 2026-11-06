@@ -4,6 +4,8 @@ import { z, ZodError } from "zod";
 import {
   DomainError,
   publicAgreement,
+  nextAction,
+  type Tenant,
   requireCondition,
   type DemoVariant,
 } from "@revisionpay/domain";
@@ -16,10 +18,24 @@ import {
   issueSession,
   sessionCookie,
   switchDemoRole,
+  auth,
+  ownerGoogleStatus,
+  linkOwnerGoogle,
 } from "@/server/auth";
 import * as service from "@/server/service";
 import { Workflow } from "@/server/workflow";
-import { matchesWebhook, verifyWebhook } from "@/server/paypal";
+import {
+  matchesWebhook,
+  verifyWebhook,
+  paymentIntegration,
+} from "@/server/paypal";
+import {
+  merchantStatus,
+  connectMerchant,
+  refreshMerchant,
+  onboardingWebhook,
+} from "@/server/merchants";
+import { deliverMail, notifyAgreement } from "@/server/mail";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -62,7 +78,16 @@ async function route(
     const workflow = new Workflow(store);
     const kick = (id?: string) =>
       after(async () => {
-        await workflow.run(id).catch(() => undefined);
+        const end = Date.now() + 40000;
+        // Complete short demo steps and resume due work without needing a page refresh.
+        do {
+          const progressed = await workflow.run(id).catch(() => false);
+          if (!id || !progressed) break;
+          const current = await store.getAgreement(id);
+          if (current?.mode !== "demo") break;
+          await new Promise((resolve) => setTimeout(resolve, 2100));
+        } while (Date.now() < end);
+        await deliverMail(store).catch(() => undefined);
       });
     if (key === "internal/tick") {
       requireCondition(
@@ -80,28 +105,45 @@ async function route(
         workflow.run(),
         workflow.run(),
       ]);
+      await deliverMail(store).catch(() => undefined);
       return json({
         progressed: results.filter((v) => v.status === "fulfilled" && v.value)
           .length,
       });
     }
-    if (key === "webhooks/paypal" && post) {
+    if (
+      [
+        "webhooks/paypal",
+        "webhooks/paypal/platform",
+        "webhooks/paypal/live",
+      ].includes(key) &&
+      post
+    ) {
       const event = await body(request);
+      const environment = key.endsWith("/live") ? "live" : "sandbox";
+      const integration = key === "webhooks/paypal" ? "DIRECT" : "PLATFORM";
       requireCondition(
-        await verifyWebhook(request.headers, event),
+        await verifyWebhook(request.headers, event, environment, integration),
         "INVALID_WEBHOOK",
         "The webhook signature is invalid.",
         401,
       );
       const eventId = z.string().max(150).parse(event.id);
       const received = await store.putValue(
-        "webhook:" + eventId,
+        "webhook:" + environment + ":" + integration + ":" + eventId,
         { id: randomUUID() },
         true,
       );
       // Duplicate delivery is harmless: only a provider read may change money state.
       const agreements = await store.listAgreements();
-      const match = agreements.find((a) => matchesWebhook(a, event));
+      if (integration === "PLATFORM")
+        await onboardingWebhook(store, event, environment);
+      const match = agreements.find(
+        (a) =>
+          a.mode === environment &&
+          paymentIntegration(a) === integration &&
+          matchesWebhook(a, event),
+      );
       if (match) {
         await workflow.reconcile(match.id);
         await store.ensureJob(match.id);
@@ -144,6 +186,20 @@ async function route(
         .object({ token: z.string().min(32).max(100) })
         .parse(await body(request));
       const a = await store.findInvitation(sha256(data.token));
+      if (a) {
+        const existing = await actor(
+          new Request(new URL("/api/agreements/" + a.id, request.url), {
+            headers: request.headers,
+          }),
+          store,
+        );
+        if (
+          existing &&
+          existing.tenantId === a.tenantId &&
+          existing.agreementId === a.id
+        )
+          return json({ agreementId: a.id });
+      }
       requireCondition(
         a?.invitation &&
           !a.invitation.redeemedAt &&
@@ -219,10 +275,67 @@ async function route(
         "Too many actions. Wait a minute and try again.",
         429,
       );
-    if (key === "logout" && post)
+    if (key === "logout" && post) {
+      if (
+        (who.kind === "seller" || who.kind === "owner") &&
+        configuration().mongoUri
+      ) {
+        const response = await (
+          await auth()
+        ).api.signOut({
+          headers: request.headers,
+          asResponse: true,
+        });
+        response.headers.append("Set-Cookie", sessionCookie("", 0));
+        response.headers.set("Cache-Control", "private, no-store");
+        return response;
+      }
       return json({ signedOut: true }, 200, {
-        "Set-Cookie": sessionCookie("", 0),
+        "Set-Cookie": sessionCookie(
+          "",
+          0,
+          who.kind === "demo"
+            ? "rp_demo"
+            : who.kind === "buyer"
+              ? "rp_buyer_" + who.agreementId
+              : "rp_session",
+        ),
       });
+    }
+    if (key === "profile/link-google" && post)
+      return json(await linkOwnerGoogle(request, store));
+    if (key === "profile") {
+      requireCondition(
+        who.kind === "seller" || who.kind === "owner",
+        "SELLER_REQUIRED",
+        "Sign in to your workspace.",
+        403,
+      );
+      if (post) {
+        const { displayName } = z
+          .object({ displayName: z.string().trim().min(2).max(80) })
+          .parse(await body(request));
+        await store.putValue<Tenant>("tenant:" + who.tenantId, {
+          id: who.tenantId,
+          userId: who.id,
+          email: who.email || "",
+          displayName,
+        });
+      }
+      return json({
+        profile: await store.getValue<Tenant>("tenant:" + who.tenantId),
+        merchant: await merchantStatus(store, who),
+        readiness: readiness(),
+        ownerGoogle:
+          who.kind === "owner"
+            ? await ownerGoogleStatus(request, store)
+            : undefined,
+      });
+    }
+    if (key === "merchant/connect" && post)
+      return json(await connectMerchant(store, who));
+    if (key === "merchant/refresh" && post)
+      return json({ merchant: await refreshMerchant(store, who) });
     if (key === "demo/role" && post) {
       const { role } = z
         .object({ role: z.enum(["seller", "buyer"]) })
@@ -240,6 +353,11 @@ async function route(
     }
     if (key === "agreements" && post) {
       const data = await body(request);
+      const profile = await store.getValue<Tenant>("tenant:" + who.tenantId);
+      if (profile) {
+        who.name = profile.displayName;
+        who.email = profile.email;
+      }
       const a = await service.create(
         store,
         who,
@@ -268,8 +386,11 @@ async function route(
       const action = path[2];
       const a = await service.allowed(store, who, id);
       if (!action && request.method === "GET") {
-        kick(id);
-        return json({ agreement: publicAgreement(a), actor: who });
+        return json({
+          agreement: publicAgreement(a),
+          actor: who,
+          nextAction: nextAction(a, who.role),
+        });
       }
       if (action === "receipt" && request.method === "GET")
         return json({
@@ -278,7 +399,9 @@ async function route(
           environment:
             a.mode === "demo"
               ? "SIMULATION — no money or blockchain transactions"
-              : "PayPal sandbox + GenLayer Studionet",
+              : a.mode === "live"
+                ? "Live PayPal payment; experimental GenLayer advice"
+                : "PayPal sandbox + GenLayer Studionet",
           agreement: publicAgreement(a),
         });
       if (action === "image" && request.method === "GET") {
@@ -311,14 +434,31 @@ async function route(
       const data = await body(request);
       let result;
       if (action === "freeze") {
-        const result = await service.freezeAgreement(store, who, id);
+        const result = await service.freezeAgreement(
+          store,
+          who,
+          id,
+          data.draftRevision,
+        );
+        kick(id);
         return json({
           agreement: publicAgreement(result.a),
           invitationUrl: result.invitationUrl,
+          email: result.email,
         });
-      } else if (action === "invite")
-        return json({ invitationUrl: await service.invite(store, who, id) });
-      else if (action === "consent")
+      } else if (action === "draft")
+        result = await service.updateDraft(
+          store,
+          who,
+          id,
+          data.input,
+          z.number().int().nonnegative().parse(data.draftRevision),
+        );
+      else if (action === "invite") {
+        const invitationUrl = await service.invite(store, who, id);
+        kick(id);
+        return json({ invitationUrl });
+      } else if (action === "consent")
         result = await service.consent(
           store,
           who,
@@ -352,7 +492,13 @@ async function route(
             ])
             .parse(data.variant) as DemoVariant,
         );
-      else if (action === "hold") result = await service.hold(store, who, id);
+      else if (action === "hold")
+        result = await service.hold(
+          store,
+          who,
+          id,
+          z.string().max(1000).default("").parse(data.note),
+        );
       else if (action === "accept")
         result = await service.acceptSubmission(
           store,
@@ -390,6 +536,7 @@ async function route(
         result = await store.getAgreement(id);
       } else throw new DomainError("NOT_FOUND", "Unknown action.", 404);
       kick(id);
+      if (result) await notifyAgreement(store, result).catch(() => undefined);
       return json({ agreement: result ? publicAgreement(result) : undefined });
     }
     throw new DomainError("NOT_FOUND", "Unknown endpoint.", 404);

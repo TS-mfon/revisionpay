@@ -6,23 +6,13 @@ import {
   ArrowRight,
   ArrowUpRight,
   Check,
-  CheckCheck,
-  CheckCircle2,
-  ChevronDown,
-  Clock3,
   Copy,
   Download,
-  ExternalLink,
-  FileCheck2,
-  Globe2,
-  Info,
-  Link2,
-  LoaderCircle,
+  Globe,
   LockKeyhole,
   RefreshCw,
-  ShieldCheck,
-  Sparkles,
-  X,
+  Printer,
+  CheckCheck,
 } from "lucide-react";
 import {
   money,
@@ -30,9 +20,7 @@ import {
   MONEY_IN_FLIGHT,
   type Actor,
   type Agreement,
-  type Evidence,
 } from "@revisionpay/domain";
-import { VARIANTS } from "@revisionpay/domain/fixtures";
 import {
   api,
   Shell,
@@ -43,55 +31,72 @@ import {
   Loading,
   ShortHash,
   formatDate,
+  agreementHref,
 } from "@/components/ui";
-import { Northstar } from "@/components/northstar";
 
 export default function AgreementPage({
   params,
 }: {
   params: Promise<{ id: string }>;
 }) {
-  const { id } = use(params);
-  const [a, setA] = useState<Agreement>();
-  const [who, setWho] = useState<Actor>();
-  const [error, setError] = useState("");
-  const [busy, setBusy] = useState("");
-  const [tab, setTab] = useState("Overview");
-  const [consented, setConsented] = useState(false);
-  const [invitation, setInvitation] = useState("");
-  const [copied, setCopied] = useState(false);
-  const [note, setNote] = useState("");
-  const [confirm, setConfirm] = useState<"accept" | "cancel" | null>(null);
-  const [manualConsent, setManualConsent] = useState(false);
-  const autoAuthorize = useRef(false);
+  const { id } = use(params),
+    [a, setA] = useState<Agreement>(),
+    [who, setWho] = useState<Actor>(),
+    [error, setError] = useState(""),
+    [busy, setBusy] = useState(""),
+    [checked, setChecked] = useState(false),
+    [link, setLink] = useState(""),
+    [copied, setCopied] = useState(false),
+    [delivery, setDelivery] = useState(""),
+    [note, setNote] = useState(""),
+    [requesting, setRequesting] = useState(false),
+    [canceling, setCanceling] = useState(false),
+    [returnMessage, setReturnMessage] = useState("");
+  const returned = useRef(false),
+    latest = useRef<Agreement | undefined>(undefined);
   const refresh = useCallback(async () => {
-    try {
-      const data = await api("agreements/" + id);
-      setA(data.agreement);
-      setWho(data.actor);
-    } catch (e) {
-      setError((e as Error).message);
-    }
+    const d = await api("agreements/" + id);
+    setA(d.agreement);
+    latest.current = d.agreement;
+    setWho(d.actor);
+    return d;
   }, [id]);
   useEffect(() => {
-    void refresh();
-    const timer = setInterval(() => {
-      if (!document.hidden) void refresh();
-    }, 1800);
-    return () => clearInterval(timer);
+    let active = true,
+      timer: ReturnType<typeof setTimeout>;
+    async function poll() {
+      try {
+        await refresh();
+      } catch (e) {
+        if (active) setError((e as Error).message);
+      }
+      if (
+        active &&
+        latest.current?.payment.status !== "PAID" &&
+        latest.current?.state !== "CANCELED"
+      )
+        timer = setTimeout(() => {
+          if (!document.hidden) void poll();
+          else timer = setTimeout(() => void poll(), 15000);
+        }, 5000);
+    }
+    void poll();
+    return () => {
+      active = false;
+      clearTimeout(timer);
+    };
   }, [refresh]);
-  async function action(name: string, data = {}): Promise<any> {
+  async function action(name: string, data: unknown = {}) {
     setBusy(name);
     setError("");
     try {
-      const result = await api(`agreements/${id}/${name}`, data);
-      if (result.agreement) setA(result.agreement);
-      if (result.invitationUrl) {
-        setInvitation(result.invitationUrl);
-        setCopied(false);
+      const d = await api("agreements/" + id + "/" + name, data);
+      if (d.invitationUrl) {
+        setLink(d.invitationUrl);
+        setDelivery(d.email || "");
       }
       await refresh();
-      return result;
+      return d;
     } catch (e) {
       setError((e as Error).message);
       return null;
@@ -100,1044 +105,907 @@ export default function AgreementPage({
     }
   }
   useEffect(() => {
-    if (
-      a?.payment.status === "ORDER_CREATED" &&
-      who?.role === "buyer" &&
-      new URLSearchParams(location.search).get("paypal") === "approved" &&
-      !autoAuthorize.current
-    ) {
-      autoAuthorize.current = true;
+    if (!a || returned.current) return;
+    const p = new URLSearchParams(location.search).get("paypal");
+    if (p === "canceled") {
+      returned.current = true;
+      setReturnMessage(
+        "PayPal approval wasn’t completed. You can resume below.",
+      );
       history.replaceState(null, "", location.pathname);
-      void action("authorize");
+    }
+    if (
+      p === "approved" &&
+      who?.role === "buyer" &&
+      a.payment.status === "ORDER_CREATED"
+    ) {
+      returned.current = true;
+      setReturnMessage("Confirming your authorization with PayPal…");
+      void action("authorize").then((d) => {
+        if (d) {
+          setReturnMessage("");
+          history.replaceState(null, "", location.pathname);
+        }
+      });
     }
   }, [a?.payment.status, who?.role]);
   async function pay() {
     if (!a) return;
     if (!(await action("consent", { digest: a.digest }))) return;
-    const order = await action("checkout");
-    if (!order) return;
+    const d = await action("checkout");
+    if (!d) return;
     if (a.mode === "demo") await action("authorize");
-    else if (order.approvalUrl) location.assign(order.approvalUrl);
+    else if (d.approvalUrl) location.assign(d.approvalUrl);
   }
-  const s = a ? currentSubmission(a) : undefined;
-  const seller = who?.role === "seller";
-  const isPaid = a?.payment.status === "PAID";
-  const frozen = Boolean(a?.digest);
-  const authorized = Boolean(a?.payment.authorizationId);
-  const findings = s?.verification.result?.criteria;
-  const final = s?.verification.status === "FINALIZED";
-  const pass = final && s?.verification.result?.verdict === "PASS";
-  const canSubmit =
+  async function submit() {
+    if (a?.mode === "demo") {
+      if (
+        !(await action("variant", {
+          variant: a.submissions.length ? "corrected" : "incomplete",
+        }))
+      )
+        return;
+    }
+    if (await action("submit", { note })) setNote("");
+  }
+  const s = a ? currentSubmission(a) : undefined,
+    seller = who?.role === "seller",
+    demo = a?.mode === "demo",
+    paid = a?.payment.status === "PAID",
+    terminal =
+      a?.state === "CANCELED" ||
+      ["VOIDED", "EXPIRED"].includes(a?.payment.status || ""),
+    pending = MONEY_IN_FLIGHT.includes(a?.payment.status || "NONE"),
+    authorized = a?.payment.status === "AUTHORIZED";
+  const canSubmit = Boolean(
     a &&
-    ["ACTIVE", "REVIEW_HOLD"].includes(a.state) &&
-    a.payment.status === "AUTHORIZED" &&
-    a.submissions.length < 3 &&
-    Date.parse(a.payment.submissionDeadline || "") > Date.now() &&
-    (!s ||
-      s.state === "FAILED" ||
-      ["FINALIZED", "FAILED"].includes(s.verification.status));
-  const workPending =
-    a &&
-    (a.baselineStatus === "QUEUED" ||
-      (authorized &&
-        a.contract.state !== "READY" &&
-        !["FAILED", "UNKNOWN"].includes(a.contract.state)) ||
-      (s &&
-        !["FINALIZED", "FAILED", "UNKNOWN"].includes(s.verification.status)));
+      authorized &&
+      seller &&
+      a.submissions.length < 3 &&
+      Date.parse(a.payment.submissionDeadline || "") > Date.now() &&
+      (!s ||
+        s.state === "FAILED" ||
+        ["FINALIZED", "FAILED"].includes(s.verification.status)),
+  );
+  const findings =
+    s?.verification.status === "FINALIZED"
+      ? s.verification.result?.criteria
+      : undefined;
+  const unmet = findings?.some((f) => f.status !== "SATISFIED");
+  const amount = a ? money(a.amountMinor) : "";
+  const legacy = Boolean(a?.digest && a.terms?.schemaVersion === "1");
+  const step =
+    a?.state === "DRAFT"
+      ? 0
+      : !a?.payment.authorizationId
+        ? 1
+        : !s
+          ? 2
+          : paid
+            ? 4
+            : 3;
   return (
-    <Shell who={who} onRole={() => void refresh()} title="Agreement">
-      <Link className="back-link" href="/workspace">
-        <ArrowLeft size={15} />
-        All agreements
-      </Link>
-      <ErrorBox message={error} />
+    <Shell who={who} title="Agreement">
       {!a ? (
         error ? (
-          <div className="empty panel">
-            <h2>Open your agreement securely.</h2>
+          <section className="welcome-panel">
+            <h1>Return to your agreement</h1>
+            <ErrorBox message={error} />
             <p>
-              Use your buyer invitation or return to your signed-in workspace.
+              Sign in with the Google account matching the email your freelancer
+              invited, or reopen your private invitation link.
             </p>
-            <Link href="/login" className="button">
-              Sign in <ArrowRight size={16} />
+            <Link
+              className="button"
+              href={
+                "/login?returnTo=" + encodeURIComponent("/agreements/" + id)
+              }
+            >
+              Sign in to recover access <ArrowRight size={18} />
             </Link>
-          </div>
+            <Link className="text-link" href="/invite">
+              Open an invitation
+            </Link>
+          </section>
         ) : (
           <Loading message="Opening your agreement…" />
         )
       ) : (
         <>
-          <div className="page-heading agreement-heading">
+          {seller && !demo && (
+            <Link className="back-link" href="/workspace">
+              <ArrowLeft size={17} />
+              Your agreements
+            </Link>
+          )}
+          {demo && (
+            <div className="demo-guide">
+              <span className="guide-count">{Math.min(step + 1, 4)} / 4</span>
+              <div>
+                <strong>
+                  {
+                    [
+                      "Start with a clear agreement",
+                      "See how the client authorizes the fee",
+                      "Submit the first revision",
+                      "Review the work as the client",
+                      "The revision is complete",
+                    ][step]
+                  }
+                </strong>
+                <p>
+                  {step === 0
+                    ? "Review the example, then continue. We’ll guide you through each side."
+                    : step === 1
+                      ? "This step simulates PayPal approval. Your real client would authorize in PayPal."
+                      : step === 2
+                        ? "The first example has a mistake. The checks will point it out."
+                        : step === 3
+                          ? a.state === "REVIEW_HOLD"
+                            ? "Now submit the corrected page as the freelancer."
+                            : "Request a change, or approve a completed revision. The payment waits for the client."
+                          : "No money moved in this demo. Your real agreements stay in the real workspace."}
+                </p>
+              </div>
+            </div>
+          )}
+          <div className="agreement-title">
             <div>
               <div className="heading-meta">
-                <span className="eyebrow">
-                  AGREEMENT · {a.id.slice(0, 8).toUpperCase()}
-                </span>
                 <Status agreement={a} />
+                {a.mode === "sandbox" && (
+                  <Badge tone="amber">PayPal sandbox · test funds</Badge>
+                )}
+                {a.mode === "live" && <Badge tone="blue">Real payment</Badge>}
               </div>
               <h1>{a.title}</h1>
               <p>
-                <span className="inline-avatar">{a.clientName[0]}</span>
+                {a.sellerName || "Freelancer"}
+                <span className="party-arrow">→</span>
                 {a.clientName}
-                <span className="dot-separator">·</span>Created{" "}
-                {formatDate(a.createdAt)}
               </p>
             </div>
             <a
-              className="button secondary small"
+              className="button secondary"
               href={a.sourceUrl}
               target="_blank"
               rel="noreferrer"
             >
-              <Globe2 size={16} />
-              Open page <ArrowUpRight size={15} />
+              <Globe size={18} />
+              Open page <ArrowUpRight size={16} />
             </a>
           </div>
-          <div className="progress-track">
-            {[
-              {
-                title: "Agreement",
-                detail: frozen ? "Terms frozen" : "Set the requirements",
-                complete: frozen,
-              },
-              {
-                title: "Authorization",
-                detail: authorized ? "Buyer approved" : "Buyer approval",
-                complete: authorized,
-              },
-              {
-                title: "Verification",
-                detail: final
-                  ? pass
-                    ? "All requirements pass"
-                    : "Findings ready"
-                  : "Review the evidence",
-                complete: pass || Boolean(a.manualAcceptanceId),
-              },
-              {
-                title: "Payment",
-                detail: isPaid
-                  ? "Collection complete"
-                  : "Collect when accepted",
-                complete: isPaid,
-              },
-            ].map((step, i) => (
-              <div
-                key={step.title}
-                className={"progress-step " + (step.complete ? "complete" : "")}
-              >
-                <span>{step.complete ? <Check size={15} /> : i + 1}</span>
-                <div>
-                  <strong>{step.title}</strong>
-                  <small>{step.detail}</small>
-                </div>
-                {i < 3 && <div className="step-line" />}
+          {legacy && (
+            <div className="notice warning">
+              <div>
+                <strong>
+                  This agreement keeps its original payment terms.
+                </strong>
+                <p>
+                  Its finalized passing checks and a matching fresh page can
+                  trigger automatic collection. You can request review before
+                  collection starts. New agreements require explicit client
+                  approval.
+                </p>
               </div>
-            ))}
-          </div>
-          <div className="detail-grid">
-            <div className="detail-main">
-              <div
-                className="content-tabs"
-                role="tablist"
-                aria-label="Agreement sections"
-              >
-                {["Overview", "Evidence", "Activity", "Receipt"].map((t) => (
-                  <button
-                    key={t}
-                    role="tab"
-                    aria-selected={t === tab}
-                    className={tab === t ? "selected" : ""}
-                    onClick={() => setTab(t)}
-                  >
-                    {t}
-                    {t === "Evidence" && a.submissions.length > 0 && (
-                      <span>{a.submissions.length + 1}</span>
-                    )}
-                  </button>
-                ))}
-              </div>
-              {tab === "Overview" && (
-                <>
-                  {isPaid ? (
-                    <div className="result-banner success">
-                      <CheckCheck size={26} />
-                      <div>
-                        <h2>The loop is closed.</h2>
-                        <p>
-                          {a.mode === "demo"
-                            ? "The simulated payment is complete. No real money moved."
-                            : "PayPal sandbox confirmed the revision payment."}{" "}
-                          {a.manualAcceptanceId
-                            ? "The buyer accepted this version directly."
-                            : "The submitted work passed every agreed requirement."}
-                        </p>
-                      </div>
-                    </div>
-                  ) : a.state === "REVIEW_HOLD" ? (
-                    <div className="result-banner warning">
-                      <ShieldCheck size={25} />
-                      <div>
-                        <h2>Payment is on hold.</h2>
-                        <p>
-                          {a.holdReason === "BUYER"
-                            ? "The buyer requested review. Only their explicit acceptance can clear this hold."
-                            : "The page changed after verification. Submit the current version for a new review."}
-                        </p>
-                      </div>
-                    </div>
-                  ) : final && !pass ? (
-                    <div className="result-banner warning">
-                      <FileCheck2 size={25} />
-                      <div>
-                        <h2>
-                          {s?.verification.result?.verdict === "REVISE"
-                            ? "One more revision. Same agreement."
-                            : "This version needs a closer look."}
-                        </h2>
-                        <p>
-                          {s?.verification.result?.verdict === "REVISE"
-                            ? "Review the finding below, update the page, and submit again. Nothing has been charged."
-                            : "The verifier could not establish every requirement. Funds remain uncollected."}
-                        </p>
-                      </div>
-                    </div>
-                  ) : workPending ? (
-                    <div className="result-banner processing">
-                      <LoaderCircle className="spin" size={23} />
-                      <div>
-                        <h2>
-                          {a.baselineStatus === "QUEUED"
-                            ? "Capturing the original page…"
-                            : a.contract.state !== "READY"
-                              ? "Preparing the agreement verifier…"
-                              : s?.state === "CAPTURING"
-                                ? "Capturing this revision…"
-                                : "Checking the agreed requirements…"}
-                        </h2>
-                        <p>
-                          {a.mode === "demo"
-                            ? "This is the simulated workflow. Results update automatically."
-                            : "The job is saved. You can leave this page and return when the result is ready."}
-                        </p>
-                      </div>
-                    </div>
-                  ) : null}
-                  <ErrorBox
-                    message={
-                      a.lastError || a.contract.error || s?.verification.error
-                    }
-                  />
-                  <section className="panel criteria-panel">
-                    <div className="panel-title">
-                      <span className="panel-icon">
-                        <FileCheck2 size={20} />
-                      </span>
-                      <div>
-                        <h2>The shared definition of done</h2>
-                        <p>
-                          {frozen
-                            ? "Frozen requirements · unchanged across every revision"
-                            : "Review these requirements before sharing with your buyer"}
-                        </p>
-                      </div>
-                      {frozen && (
-                        <LockKeyhole className="muted-icon" size={17} />
-                      )}
-                    </div>
-                    <div className="criteria-list">
-                      {a.requirements.map((r) => {
-                        const f = final
-                          ? findings?.find((f) => f.id === r.id)
-                          : undefined;
-                        return (
-                          <article
-                            key={r.id}
-                            className={
-                              f
-                                ? "criterion " + f.status.toLowerCase()
-                                : "criterion"
-                            }
-                          >
-                            <span className="requirement-id">
-                              {f?.status === "SATISFIED" ? (
-                                <Check size={15} />
-                              ) : f?.status === "UNSATISFIED" ? (
-                                <X size={15} />
-                              ) : (
-                                r.id
-                              )}
-                            </span>
-                            <div>
-                              <div className="criterion-heading">
-                                <h3>{r.title}</h3>
-                                {f && (
-                                  <span
-                                    className={
-                                      "finding-state " + f.status.toLowerCase()
-                                    }
-                                  >
-                                    {f.status === "SATISFIED"
-                                      ? "Satisfied"
-                                      : f.status === "UNSATISFIED"
-                                        ? "Needs revision"
-                                        : "Unverifiable"}
-                                  </span>
-                                )}
-                              </div>
-                              <p>{r.description}</p>
-                              {f && (
-                                <div className="finding">
-                                  <strong>
-                                    {a.mode === "demo"
-                                      ? "SIMULATED FINDING"
-                                      : "VERIFIER FINDING"}
-                                  </strong>
-                                  <p>{f.reason}</p>
-                                  <div className="citation-links">
-                                    {f.evidenceBlockIds.map((ref) => (
-                                      <button
-                                        key={ref}
-                                        onClick={() => setTab("Evidence")}
-                                      >
-                                        <Link2 size={12} />
-                                        {ref}
-                                      </button>
-                                    ))}
-                                  </div>
-                                </div>
-                              )}
-                            </div>
-                          </article>
-                        );
-                      })}
-                    </div>
-                    <div className="panel-footnote">
-                      <Info size={14} />
-                      Checks cover visible copy and link targets on this page.
-                    </div>
-                  </section>
-                  {seller && a.state === "DRAFT" && (
-                    <section className="panel action-panel">
-                      <h2>Ready to make it official?</h2>
-                      <p>
-                        The original page is{" "}
-                        {a.baselineStatus === "READY"
-                          ? "captured. Freeze these requirements to create a buyer invitation."
-                          : a.baselineStatus === "FAILED"
-                            ? "not captured yet. Check the capture settings, then retry."
-                            : "being captured. You can freeze the agreement once it’s ready."}
-                      </p>
-                      <Button
-                        busy={busy === "freeze"}
-                        disabled={Boolean(busy) || a.baselineStatus !== "READY"}
-                        onClick={() => action("freeze")}
-                      >
-                        Freeze & create invitation <ArrowRight size={16} />
-                      </Button>
-                      {a.baselineStatus === "FAILED" && (
-                        <Button
-                          className="secondary"
-                          onClick={() => action("retry-baseline")}
-                          busy={busy === "retry-baseline"}
-                        >
-                          Retry original-page capture
-                        </Button>
-                      )}
-                    </section>
-                  )}
-                  {seller && a.state === "AWAITING_BUYER" && (
-                    <section className="panel action-panel">
-                      <div className="panel-title">
-                        <Link2 size={20} />
-                        <div>
-                          <h2>Bring your buyer into the agreement.</h2>
-                          <p>
-                            {a.mode === "demo"
-                              ? "Switch to buyer view to review the terms and simulate authorization."
-                              : "Share the invitation privately. Your buyer can review the terms without a crypto wallet."}
-                          </p>
-                        </div>
-                      </div>
-                      {invitation ? (
-                        <div className="invite-copy">
-                          <input
-                            aria-label="Buyer invitation link"
-                            readOnly
-                            value={invitation}
-                          />
-                          <Button
-                            className="secondary small"
-                            onClick={async () => {
-                              await navigator.clipboard.writeText(invitation);
-                              setCopied(true);
-                            }}
-                          >
-                            {copied ? <Check size={15} /> : <Copy size={15} />}
-                            {copied ? "Copied" : "Copy link"}
-                          </Button>
-                        </div>
-                      ) : (
-                        !a.invitation?.redeemedAt &&
-                        a.payment.status === "NONE" && (
-                          <Button
-                            className="secondary"
-                            onClick={() => action("invite")}
-                            busy={busy === "invite"}
-                          >
-                            Create a fresh invitation <Link2 size={16} />
-                          </Button>
-                        )
-                      )}
-                      {a.mode === "demo" && (
-                        <Button
-                          className="secondary"
-                          onClick={async () => {
-                            await api("demo/role", { role: "buyer" });
-                            await refresh();
-                          }}
-                        >
-                          Continue as buyer <ArrowRight size={16} />
-                        </Button>
-                      )}
-                    </section>
-                  )}
-                  {seller &&
-                    authorized &&
-                    a.state !== "CLOSED" &&
-                    a.state !== "CANCELED" && (
-                      <section className="panel action-panel">
-                        <div className="panel-title">
-                          <span className="panel-icon">
-                            <Sparkles size={20} />
-                          </span>
-                          <div>
-                            <h2>
-                              {a.submissions.length
-                                ? "Make the next revision count."
-                                : "The agreement is ready for your work."}
-                            </h2>
-                            <p>
-                              {a.submissions.length} of 3 submissions used ·
-                              Submit by{" "}
-                              {formatDate(a.payment.submissionDeadline)}
-                            </p>
-                          </div>
-                        </div>
-                        {a.sourceUrl.includes("/demo-site/" + a.id) && (
-                          <div className="demo-editor">
-                            <label htmlFor="variant">
-                              Example page version
-                            </label>
-                            <div>
-                              <select
-                                id="variant"
-                                value={a.demoVariant}
-                                disabled={Boolean(busy)}
-                                onChange={(e) =>
-                                  action("variant", { variant: e.target.value })
-                                }
-                              >
-                                {VARIANTS.map((v) => (
-                                  <option key={v.id} value={v.id}>
-                                    {v.label}
-                                  </option>
-                                ))}
-                              </select>
-                              <a
-                                href={a.sourceUrl}
-                                target="_blank"
-                                rel="noreferrer"
-                                className="icon-button"
-                                aria-label="Preview example page"
-                              >
-                                <ExternalLink size={17} />
-                              </a>
-                            </div>
-                            <small>
-                              {
-                                VARIANTS.find((v) => v.id === a.demoVariant)
-                                  ?.description
-                              }
-                            </small>
-                          </div>
-                        )}
-                        <label className="note-label" htmlFor="revision-note">
-                          Revision note <span>Optional</span>
-                        </label>
-                        <textarea
-                          id="revision-note"
-                          value={note}
-                          onChange={(e) => setNote(e.target.value)}
-                          maxLength={500}
-                          placeholder="What changed in this version?"
-                          rows={2}
-                        />
-                        <div className="action-row">
-                          <Button
-                            disabled={!canSubmit || Boolean(busy)}
-                            busy={busy === "submit"}
-                            onClick={async () => {
-                              if (await action("submit", { note })) setNote("");
-                            }}
-                          >
-                            Submit for verification <ArrowRight size={16} />
-                          </Button>
-                          <span>
-                            <LockKeyhole size={13} />
-                            The agreed fee stays {money(a.amountMinor)}.
-                          </span>
-                        </div>
-                      </section>
-                    )}
-                  {!seller && a.state === "AWAITING_BUYER" && (
-                    <section className="panel buyer-consent">
-                      <div className="panel-title">
-                        <ShieldCheck size={23} />
-                        <div>
-                          <h2>Your approval starts the work.</h2>
-                          <p>
-                            Authorize {money(a.amountMinor)} for this revision.
-                          </p>
-                        </div>
-                      </div>
-                      <p>
-                        We will charge this amount once after the agreed checks
-                        pass and verification is final, or if you explicitly
-                        approve the submitted version yourself. You can request
-                        review before charging starts.
-                      </p>
-                      <p>
-                        The seller has 48 hours after authorization to submit.
-                        Collection must start within 70 hours; otherwise, we
-                        will cancel the uncollected authorization where
-                        possible.
-                      </p>
-                      <label className="checkbox-label">
-                        <input
-                          type="checkbox"
-                          checked={consented}
-                          onChange={(e) => setConsented(e.target.checked)}
-                        />
-                        <span>
-                          I accept these exact requirements, the{" "}
-                          {money(a.amountMinor)} fee, and the collection
-                          conditions. I understand that public page evidence and
-                          verification records may remain visible on Studionet.
-                        </span>
-                      </label>
-                      <Button
-                        className={a.mode === "demo" ? "" : "paypal-button"}
-                        onClick={pay}
-                        disabled={!consented || Boolean(busy)}
-                        busy={
-                          busy === "consent" ||
-                          busy === "checkout" ||
-                          busy === "authorize"
-                        }
-                      >
-                        {a.mode === "demo"
-                          ? "Simulate authorization"
-                          : "Authorize with PayPal sandbox"}
-                        <ArrowRight size={16} />
-                      </Button>
-                      {a.payment.status === "ORDER_CREATED" && (
-                        <Button
-                          className="secondary"
-                          disabled={Boolean(busy)}
-                          onClick={() => action("authorize")}
-                        >
-                          I’ve approved in PayPal — continue
-                        </Button>
-                      )}
-                      <small className="consent-footnote">
-                        <LockKeyhole size={13} />
-                        {a.mode === "demo"
-                          ? "No PayPal login. No real money. Simulated authorization only."
-                          : "You’ll approve securely with your PayPal sandbox buyer account."}
-                      </small>
-                    </section>
-                  )}
-                  {!seller && a.payment.status === "AUTHORIZED" && (
-                    <section className="panel buyer-actions">
-                      <h2>Your review stays in your hands.</h2>
-                      <p>
-                        You can pause automatic collection while you discuss the
-                        work. If you’re satisfied with the captured version, you
-                        can also accept it directly.
-                      </p>
-                      <div className="action-row">
-                        <Button
-                          className="secondary"
-                          disabled={Boolean(busy) || a.holdReason === "BUYER"}
-                          onClick={() => action("hold")}
-                          busy={busy === "hold"}
-                        >
-                          Request review <ShieldCheck size={16} />
-                        </Button>
-                        {s?.evidence && (
-                          <Button
-                            className="text-button"
-                            onClick={() => {
-                              setConfirm("accept");
-                              setManualConsent(false);
-                            }}
-                          >
-                            Accept this version myself <ArrowRight size={15} />
-                          </Button>
-                        )}
-                      </div>
-                      {confirm === "accept" && s?.evidence && (
-                        <div className="inline-confirm">
-                          <h3>
-                            Accept revision {s.revision} for{" "}
-                            {money(a.amountMinor)}?
-                          </h3>
-                          <p>
-                            This records your direct approval of the captured
-                            version and permits collection after a fresh
-                            matching page check. The verifier’s findings stay
-                            unchanged.
-                          </p>
-                          <label className="checkbox-label">
-                            <input
-                              type="checkbox"
-                              checked={manualConsent}
-                              onChange={(e) =>
-                                setManualConsent(e.target.checked)
-                              }
-                            />
-                            <span>
-                              I have reviewed this captured revision and approve
-                              the {money(a.amountMinor)} payment.
-                            </span>
-                          </label>
-                          <Button
-                            disabled={!manualConsent || Boolean(busy)}
-                            busy={busy === "accept"}
-                            onClick={async () => {
-                              await action("accept", {
-                                submissionId: s.id,
-                                artifactHash: s.evidence!.artifactHash,
-                              });
-                              setConfirm(null);
-                            }}
-                          >
-                            Approve this version & payment
-                          </Button>
-                          <Button
-                            className="text-button"
-                            onClick={() => setConfirm(null)}
-                          >
-                            Keep reviewing
-                          </Button>
-                        </div>
-                      )}
-                    </section>
-                  )}
-                </>
-              )}
-              {tab === "Evidence" && <EvidencePanel agreement={a} />}
-              {tab === "Activity" && (
-                <section className="panel activity-panel">
-                  <div className="panel-title">
-                    <Clock3 size={20} />
-                    <div>
-                      <h2>The complete handoff</h2>
-                      <p>Every material step, in one shared timeline.</p>
-                    </div>
-                  </div>
-                  <ol className="timeline">
-                    {[...a.events].reverse().map((event) => (
-                      <li key={event.id}>
-                        <span className="timeline-dot">
-                          <Check size={12} />
-                        </span>
-                        <div>
-                          <p>{event.message}</p>
-                          <small>
-                            {event.actor} · {formatDate(event.at)}
-                          </small>
-                          {event.refs &&
-                            Object.entries(event.refs).map(([name, value]) => (
-                              <code key={name} title={value}>
-                                {name}:{" "}
-                                {value.length > 50
-                                  ? value.slice(0, 28) + "…"
-                                  : value}
-                              </code>
-                            ))}
-                        </div>
-                      </li>
-                    ))}
-                  </ol>
-                </section>
-              )}
-              {tab === "Receipt" && <Receipt agreement={a} />}
             </div>
-            <aside className="detail-aside">
-              <section className="panel payment-card">
-                <div className="payment-card-top">
-                  <span>REVISION PAYMENT</span>
-                  <LockKeyhole size={16} />
+          )}
+          <ErrorBox message={error} />
+          {returnMessage && (
+            <div className="notice info" role="status">
+              {returnMessage}
+            </div>
+          )}
+          {paid ? (
+            <section className="receipt">
+              <span className="success-symbol">
+                <CheckCheck size={30} />
+              </span>
+              <p className="eyebrow">
+                {demo ? "EXAMPLE RECEIPT" : "PAYMENT RECEIPT"}
+              </p>
+              <h2>Payment confirmed.</h2>
+              <div className="receipt-amount">
+                {amount}
+                <span>USD</span>
+              </div>
+              <p>
+                {demo
+                  ? "This is a simulated payment. No money moved."
+                  : a.mode === "sandbox"
+                    ? "PayPal confirmed a sandbox payment using test funds."
+                    : "PayPal confirmed this payment to " +
+                      (a.sellerName || "your freelancer") +
+                      "."}
+              </p>
+              <dl className="receipt-facts">
+                <div>
+                  <dt>For</dt>
+                  <dd>{a.title}</dd>
                 </div>
-                <div className="amount">
-                  {money(a.amountMinor)}
-                  <span>USD</span>
+                <div>
+                  <dt>Client</dt>
+                  <dd>{a.clientName}</dd>
                 </div>
-                <p className="payment-description">One page. One agreed fee.</p>
-                <div className="payment-state">
-                  <span
-                    className={"payment-state-icon " + (isPaid ? "paid" : "")}
-                  >
-                    {isPaid ? (
-                      <CheckCheck size={20} />
-                    ) : (
-                      <ShieldCheck size={20} />
-                    )}
-                  </span>
-                  <div>
-                    <strong>
-                      {isPaid
-                        ? "Payment completed"
-                        : a.payment.status === "AUTHORIZED"
-                          ? "Authorized · not charged"
-                          : ["VOIDED", "EXPIRED"].includes(a.payment.status)
-                            ? "Authorization canceled"
-                            : MONEY_IN_FLIGHT.includes(a.payment.status)
-                              ? "Confirming with PayPal"
-                              : "Awaiting authorization"}
-                    </strong>
-                    <small>
-                      {a.mode === "demo"
-                        ? "Simulation · no money moves"
-                        : "PayPal sandbox · test funds"}
-                    </small>
-                  </div>
+                <div>
+                  <dt>Recipient</dt>
+                  <dd>{a.sellerName || "Freelancer"}</dd>
                 </div>
-                <ErrorBox message={a.payment.error} />
-                <div className="payment-breakdown">
-                  <div>
-                    <span>Revision fee</span>
-                    <strong>{money(a.amountMinor)}</strong>
-                  </div>
-                  <div>
-                    <span>Charged so far</span>
-                    <strong data-testid="charged-amount">
-                      {money(isPaid ? a.amountMinor : 0)}
-                    </strong>
-                  </div>
+                <div>
+                  <dt>Approved by</dt>
+                  <dd>
+                    {a.manualAcceptanceId
+                      ? "Client"
+                      : "Legacy verification terms"}
+                  </dd>
                 </div>
-                <div className="payment-rule">
-                  <ShieldCheck size={17} />
-                  <p>
-                    {isPaid
-                      ? a.manualAcceptanceId
-                        ? "Collected after direct buyer acceptance."
-                        : "Collected after final verification and a matching page check."
-                      : "Collection requires a final PASS and a matching page, or explicit buyer acceptance."}
-                  </p>
+                <div>
+                  <dt>Paid on</dt>
+                  <dd>{formatDate(a.payment.capturedAt)}</dd>
                 </div>
                 {a.payment.adjustment && (
-                  <Badge tone="amber">
-                    {a.payment.adjustment.replaceAll("_", " ")}
-                  </Badge>
-                )}
-                {authorized && (
-                  <div className="deadlines">
-                    <div>
-                      <Clock3 size={14} />
-                      <span>
-                        Submit by
-                        <strong>
-                          {formatDate(a.payment.submissionDeadline)}
-                        </strong>
-                      </span>
-                    </div>
-                    <div>
-                      <Clock3 size={14} />
-                      <span>
-                        Collect before
-                        <strong>{formatDate(a.payment.captureDeadline)}</strong>
-                      </span>
-                    </div>
+                  <div>
+                    <dt>Payment update</dt>
+                    <dd>{a.payment.adjustment.replaceAll("_", " ")}</dd>
                   </div>
                 )}
-                <div className="paypal-wordmark">
-                  {a.mode === "demo" ? "Simulated payment" : "PayPal"}
-                  <span>
-                    {a.mode === "demo" ? "No provider transaction" : "SANDBOX"}
-                  </span>
+              </dl>
+              <div className="receipt-actions">
+                <Button className="secondary" onClick={() => window.print()}>
+                  <Printer size={18} />
+                  Print receipt
+                </Button>
+                <Button
+                  className="text-button"
+                  onClick={async () => {
+                    try {
+                      const record = await api("agreements/" + id + "/receipt");
+                      const url = URL.createObjectURL(
+                        new Blob([JSON.stringify(record, null, 2)], {
+                          type: "application/json",
+                        }),
+                      );
+                      const anchor = document.createElement("a");
+                      anchor.href = url;
+                      anchor.download = "revisionpay-" + id + ".json";
+                      anchor.click();
+                      setTimeout(() => URL.revokeObjectURL(url), 1000);
+                    } catch (e) {
+                      setError((e as Error).message);
+                    }
+                  }}
+                >
+                  <Download size={17} />
+                  Download record
+                </Button>
+              </div>
+              {!demo && a.payment.captureId && (
+                <a
+                  className="text-link"
+                  target="_blank"
+                  rel="noreferrer"
+                  href={
+                    (a.mode === "sandbox"
+                      ? "https://www.sandbox.paypal.com"
+                      : "https://www.paypal.com") +
+                    "/activity/payment/" +
+                    encodeURIComponent(a.payment.captureId)
+                  }
+                >
+                  View payment in PayPal <ArrowUpRight size={16} />
+                </a>
+              )}
+            </section>
+          ) : (
+            <>
+              <section className="payment-summary" aria-label="Payment status">
+                <div>
+                  <span>Fixed revision fee</span>
+                  <strong>
+                    {amount}
+                    <small>USD</small>
+                  </strong>
+                </div>
+                <div>
+                  <strong>
+                    {authorized
+                      ? "Authorized · not charged"
+                      : terminal
+                        ? "Agreement closed"
+                        : pending
+                          ? "Confirming payment status"
+                          : a.payment.status === "AUTH_DENIED" ||
+                              a.payment.status === "FAILED"
+                            ? "Payment needs attention"
+                            : "Nothing charged"}
+                  </strong>
+                  <p>
+                    {authorized
+                      ? legacy
+                        ? "Original terms permit collection after finalized passing checks and a matching fresh page."
+                        : "The client approves the finished work before payment is collected."
+                      : pending
+                        ? "We’re checking with PayPal. Please don’t start another payment."
+                        : terminal
+                          ? "Any uncollected authorization is being released where possible."
+                          : "One agreed fee, with no extra charge for resubmitting."}
+                  </p>
                 </div>
               </section>
-              <section className="panel verification-card">
-                <div className="panel-title">
-                  <FingerprintIcon />
-                  <h3>A traceable decision</h3>
-                </div>
-                <div className="verification-network">
-                  <span className="status-dot" />
-                  {a.mode === "demo"
-                    ? "Simulated verifier"
-                    : "GenLayer Studionet"}
-                </div>
-                <p>
-                  {a.mode === "demo"
-                    ? "Demo findings show how the workflow behaves. They are not on-chain AI results."
-                    : "The agreement contract evaluates captured copy. Only successful final execution can enable automatic collection."}
-                </p>
-                <ShortHash label="Agreement" value={a.digest} />
-                <ShortHash label="Contract" value={a.contract.address} />
-                <ShortHash label="Decision" value={s?.verification.txId} />
-                {s && (
-                  <div className="verification-footer">
-                    <span>Verification</span>
+              {a.state === "REVIEW_HOLD" && (
+                <div className="notice warning">
+                  <div>
                     <strong>
-                      {s.verification.status.toLowerCase().replaceAll("_", " ")}
+                      {a.holdReason === "CONTENT_CHANGED"
+                        ? "The page changed after review"
+                        : "Changes requested"}
                     </strong>
+                    <p>
+                      {a.changeRequest ||
+                        "Publish an updated revision, then submit it again. Payment remains uncharged."}
+                    </p>
                   </div>
+                </div>
+              )}
+              {s?.state === "CAPTURING" && (
+                <div className="notice info" role="status">
+                  <Loading message="Capturing the updated page. You can leave and return later." />
+                </div>
+              )}
+              {a.payment.error && <ErrorBox message={a.payment.error} />}
+            </>
+          )}
+          <details
+            className={paid ? "completed-work" : "current-work"}
+            open={!paid}
+          >
+            <summary>View the approved work</summary>
+            <section className="agreement-document">
+              <div className="section-top">
+                <div>
+                  <p className="eyebrow">
+                    {s ? "THE SUBMITTED WORK" : "THE AGREEMENT"}
+                  </p>
+                  <h2>{s ? "Review each agreed change" : "What’s included"}</h2>
+                </div>
+                {a.digest && (
+                  <span className="locked-terms">
+                    <LockKeyhole size={15} />
+                    Agreed terms
+                  </span>
                 )}
-                {a.mode === "sandbox" && (
-                  <small className="network-note">
-                    Studionet is a development environment. Page capture is
-                    performed by the application’s isolated collector.
-                  </small>
-                )}
-              </section>
-              <Button
-                className="secondary full small"
-                onClick={() => action("refresh")}
-                busy={busy === "refresh"}
-              >
-                <RefreshCw size={14} />
-                Refresh saved job
-              </Button>
-              {!isPaid &&
-                !["CANCELED", "CLOSED"].includes(a.state) &&
-                !MONEY_IN_FLIGHT.includes(a.payment.status) && (
-                  <div className="cancel-area">
-                    {confirm === "cancel" ? (
+              </div>
+              <ol className="requirement-list">
+                {a.requirements.map((r, i) => {
+                  const finding = findings?.find((f) => f.id === r.id);
+                  return (
+                    <li key={r.id}>
+                      <span
+                        className={
+                          "requirement-marker " +
+                          (finding?.status === "SATISFIED" ? "met" : "")
+                        }
+                      >
+                        {finding?.status === "SATISFIED" ? (
+                          <Check size={17} />
+                        ) : (
+                          i + 1
+                        )}
+                      </span>
+                      <div>
+                        <p className="requirement-text">{r.description}</p>
+                        {finding && (
+                          <div
+                            className={
+                              "finding " +
+                              (finding.status === "SATISFIED"
+                                ? "met"
+                                : "needs-change")
+                            }
+                          >
+                            <strong>
+                              {finding.status === "SATISFIED"
+                                ? "Check met"
+                                : finding.status === "UNSATISFIED"
+                                  ? "Needs a change"
+                                  : "Please review"}
+                            </strong>
+                            <p>{finding.reason}</p>
+                          </div>
+                        )}
+                      </div>
+                    </li>
+                  );
+                })}
+              </ol>
+              {s?.state === "READY" && !findings && (
+                <p className="check-explanation">
+                  {["FAILED", "UNKNOWN"].includes(s.verification.status) ||
+                  ["FAILED", "UNKNOWN"].includes(a.contract.state)
+                    ? "AI findings aren’t available. Review the captured page below to make your decision."
+                    : "AI checks are running. You can review the captured page now; the client decides whether to pay."}
+                </p>
+              )}
+              {s?.evidence && (
+                <details className="evidence-details">
+                  <summary>View the captured page and evidence</summary>
+                  {s.evidence.screenshotHash && (
+                    <img
+                      className="evidence-image"
+                      alt="The submitted website page captured for this review"
+                      src={
+                        "/api/agreements/" +
+                        id +
+                        "/image?hash=" +
+                        encodeURIComponent(s.evidence.screenshotHash)
+                      }
+                    />
+                  )}
+                  <p>Captured {formatDate(s.evidence.capturedAt)}</p>
+                  {s.evidence.blocks.map((b) => (
+                    <p key={b.id}>{b.text}</p>
+                  ))}
+                  {s.evidence.links.map((l) => (
+                    <p key={l.id}>
+                      <strong>{l.text}</strong> →{" "}
+                      <span className="url-text">{l.href}</span>
+                    </p>
+                  ))}
+                </details>
+              )}
+            </section>
+          </details>
+          {!paid && !terminal && (
+            <section className="next-step">
+              {a.state === "DRAFT" ? (
+                <>
+                  <p className="eyebrow">REVIEW BEFORE SENDING</p>
+                  <h2>
+                    {demo
+                      ? "A shared starting point"
+                      : "Ready to send to your client?"}
+                  </h2>
+                  <p>
+                    The page, requirements and fee will be locked when you send.
+                    The client has a clear chance to review everything before
+                    authorizing payment.
+                  </p>
+                  <div className="terms-note">
+                    <strong>How the payment works</strong>
+                    <p>
+                      After authorization, submit within 48 hours. Client
+                      approval and payment must happen within 70 hours. Up to
+                      three submissions. Requirements and captured page evidence
+                      may be published for experimental AI checks; contact
+                      emails stay private.
+                    </p>
+                  </div>
+                  <div role="status" className="page-check">
+                    {a.baselineStatus === "READY" ? (
                       <>
-                        <p>
-                          Cancel this agreement and void any uncollected
-                          authorization?
-                        </p>
+                        <Check size={18} />
+                        Page captured and ready
+                      </>
+                    ) : a.baselineStatus === "FAILED" ? (
+                      <>
+                        <ErrorBox
+                          message={
+                            a.lastError || "We couldn't capture this page."
+                          }
+                        />
                         <Button
-                          className="danger small"
-                          busy={busy === "cancel"}
-                          onClick={async () => {
-                            await action("cancel");
-                            setConfirm(null);
-                          }}
+                          className="secondary"
+                          busy={busy === "retry-baseline"}
+                          onClick={() => action("retry-baseline")}
                         >
-                          Yes, cancel agreement
-                        </Button>
-                        <Button
-                          className="text-button small"
-                          onClick={() => setConfirm(null)}
-                        >
-                          Keep agreement
+                          Check page again
                         </Button>
                       </>
                     ) : (
-                      <button onClick={() => setConfirm("cancel")}>
-                        Cancel agreement
-                      </button>
+                      <Loading message="Checking that this page can be captured…" />
                     )}
                   </div>
-                )}
-            </aside>
-          </div>
+                  <div className="action-row">
+                    <Button
+                      disabled={Boolean(busy) || a.baselineStatus !== "READY"}
+                      busy={busy === "freeze"}
+                      onClick={() =>
+                        action("freeze", {
+                          draftRevision: a.draftRevision || 0,
+                        })
+                      }
+                    >
+                      {demo ? "Continue to client review" : "Send to client"}
+                      <ArrowRight size={18} />
+                    </Button>
+                    {!demo && (
+                      <>
+                        <Link
+                          className="text-link"
+                          href={"/agreements/new?draft=" + id}
+                        >
+                          Edit agreement
+                        </Link>
+                        <Link className="text-link" href="/settings">
+                          Payment setup
+                        </Link>
+                      </>
+                    )}
+                  </div>
+                </>
+              ) : a.state === "AWAITING_BUYER" ? (
+                seller ? (
+                  <>
+                    <h2>Your client has the next step.</h2>
+                    <p>
+                      Share the private invitation so {a.clientName} can review
+                      the agreement and authorize {amount}.
+                    </p>
+                    {!a.invitation?.redeemedAt && (
+                      <Button
+                        className="secondary"
+                        busy={busy === "invite"}
+                        onClick={() => action("invite")}
+                      >
+                        Send invitation again
+                      </Button>
+                    )}
+                    <p className="small-text">
+                      Clients who already opened their invitation can return
+                      using their email address.
+                    </p>
+                  </>
+                ) : (
+                  <>
+                    <h2>
+                      {legacy
+                        ? "Review the original agreement before authorizing"
+                        : "Review now. Approve payment after the work."}
+                    </h2>
+                    <p>
+                      You’ll authorize {amount} with PayPal.{" "}
+                      {legacy
+                        ? "Under these original terms, successful finalized checks and a matching fresh page can trigger collection. You can request review beforehand."
+                        : "This may place a temporary hold, but the fee is collected only after you approve a submitted revision."}
+                    </p>
+                    <div className="terms-note">
+                      <p>
+                        The freelancer has 48 hours to submit, with up to three
+                        submissions. Review and approve within 70 hours of
+                        authorization. Requirements and public page evidence may
+                        be published for AI checks.{" "}
+                        {legacy
+                          ? "These original terms permit automatic collection after successful checks."
+                          : "AI advice is experimental; you decide whether to pay."}
+                      </p>
+                    </div>
+                    <label className="consent">
+                      <input
+                        type="checkbox"
+                        checked={checked}
+                        onChange={(e) => setChecked(e.target.checked)}
+                      />
+                      <span>
+                        I agree to these requirements, the {amount} fee and the
+                        payment conditions above.
+                      </span>
+                    </label>
+                    <Button
+                      disabled={!checked || Boolean(busy) || pending}
+                      busy={Boolean(busy)}
+                      onClick={pay}
+                    >
+                      {demo
+                        ? "Simulate authorization"
+                        : a.payment.status === "ORDER_CREATED"
+                          ? "Resume PayPal approval"
+                          : "Authorize " + amount + " with PayPal"}
+                      <ArrowRight size={18} />
+                    </Button>
+                    {a.mode === "sandbox" && (
+                      <p className="small-text">
+                        Use a PayPal sandbox personal account. No real money is
+                        charged.{" "}
+                        <Link href="/help#paypal">Trouble signing in?</Link>
+                      </p>
+                    )}
+                  </>
+                )
+              ) : pending ? (
+                <>
+                  <h2>Confirming with PayPal</h2>
+                  <p>
+                    This page updates automatically. A delayed response will be
+                    reconciled before another payment action is allowed.
+                  </p>
+                </>
+              ) : authorized && seller ? (
+                <>
+                  <h2>
+                    {s
+                      ? "Send the updated revision"
+                      : "Ready when your changes are published"}
+                  </h2>
+                  <p>
+                    {a.submissions.length} of 3 submissions used. Submit by{" "}
+                    {formatDate(a.payment.submissionDeadline)}.
+                  </p>
+                  {a.changeRequest && (
+                    <blockquote>{a.changeRequest}</blockquote>
+                  )}
+                  {canSubmit ? (
+                    <>
+                      <label>
+                        What changed? <span className="optional">Optional</span>
+                        <textarea
+                          rows={2}
+                          maxLength={500}
+                          value={note}
+                          onChange={(e) => setNote(e.target.value)}
+                          placeholder="A short note for your client"
+                        />
+                      </label>
+                      <Button
+                        disabled={Boolean(busy)}
+                        busy={busy === "submit"}
+                        onClick={submit}
+                      >
+                        {demo
+                          ? a.submissions.length
+                            ? "Submit corrected page"
+                            : "Submit first revision"
+                          : "Check updated page"}
+                        <ArrowRight size={18} />
+                      </Button>
+                    </>
+                  ) : (
+                    <p>
+                      {a.submissions.length >= 3
+                        ? "All three submissions have been used. Your client can still review the captured work before the payment deadline."
+                        : s?.state === "READY"
+                          ? "Waiting for your client to review the work. Return to this agreement to see their response."
+                          : "The current page check is still in progress. Your work is saved."}
+                    </p>
+                  )}
+                </>
+              ) : authorized && !seller ? (
+                <>
+                  {s?.evidence?.complete ? (
+                    <>
+                      <h2>
+                        {requesting
+                          ? "What needs to change?"
+                          : "Your review. Your decision."}
+                      </h2>
+                      <p>
+                        Approving collects {amount} for this captured revision.
+                        Please review the work and any findings before
+                        continuing.
+                      </p>
+                      {unmet && (
+                        <div className="notice warning">
+                          Some checks need attention. Approving still accepts
+                          this revision and charges the agreed fee.
+                        </div>
+                      )}
+                      {requesting ? (
+                        <>
+                          <label>
+                            Tell your freelancer what to fix
+                            <textarea
+                              autoFocus
+                              rows={3}
+                              value={note}
+                              maxLength={1000}
+                              onChange={(e) => setNote(e.target.value)}
+                              placeholder="Describe the change you need."
+                            />
+                          </label>
+                          <div className="action-row">
+                            <Button
+                              disabled={note.trim().length < 5 || Boolean(busy)}
+                              busy={busy === "hold"}
+                              onClick={async () => {
+                                if (await action("hold", { note })) {
+                                  setRequesting(false);
+                                  setNote("");
+                                }
+                              }}
+                            >
+                              Send change request
+                            </Button>
+                            <Button
+                              className="secondary"
+                              onClick={() => setRequesting(false)}
+                            >
+                              Back to review
+                            </Button>
+                          </div>
+                        </>
+                      ) : (
+                        <div className="action-row">
+                          <Button
+                            disabled={
+                              Boolean(busy) ||
+                              Date.parse(a.payment.captureDeadline || "") <=
+                                Date.now()
+                            }
+                            busy={busy === "accept"}
+                            onClick={() =>
+                              action("accept", {
+                                submissionId: s.id,
+                                artifactHash: s.evidence!.artifactHash,
+                              })
+                            }
+                          >
+                            {demo
+                              ? "Simulate approval and payment"
+                              : "Approve and pay " + amount}
+                            <ArrowRight size={18} />
+                          </Button>
+                          <Button
+                            className="secondary"
+                            disabled={Boolean(busy)}
+                            onClick={() => {
+                              setNote(
+                                demo
+                                  ? "Please remove the annual commitment and termination fee."
+                                  : "",
+                              );
+                              setRequesting(true);
+                            }}
+                          >
+                            Request changes
+                          </Button>
+                        </div>
+                      )}
+                      <p className="small-text">
+                        Approval window ends{" "}
+                        {formatDate(a.payment.captureDeadline)}.
+                      </p>
+                    </>
+                  ) : (
+                    <>
+                      <h2>Your freelancer can get started.</h2>
+                      <p>
+                        Return using your private agreement link to see when the
+                        captured revision is ready. Your payment remains
+                        authorized and uncharged.
+                      </p>
+                    </>
+                  )}
+                </>
+              ) : (
+                <>
+                  <h2>Your agreement is saved.</h2>
+                  <p>Check the payment message above for the next step.</p>
+                </>
+              )}
+            </section>
+          )}
+          {link && !demo && (
+            <section className="share-panel">
+              <h2>Invitation ready</h2>
+              <p>
+                {delivery === "QUEUED"
+                  ? "The invitation email is queued. You can also share this private link."
+                  : delivery === "UNAVAILABLE"
+                    ? "Email isn't available yet. Share this private link with your client."
+                    : "Share this private link with your client."}
+              </p>
+              <label>
+                Private invitation link
+                <input
+                  readOnly
+                  value={link}
+                  onFocus={(e) => e.target.select()}
+                />
+              </label>
+              <Button
+                className="secondary"
+                onClick={async () => {
+                  try {
+                    await navigator.clipboard.writeText(link);
+                    setCopied(true);
+                  } catch {
+                    setError(
+                      "Select the invitation link and copy it manually.",
+                    );
+                  }
+                }}
+              >
+                {copied ? <Check size={17} /> : <Copy size={17} />}{" "}
+                {copied ? "Copied" : "Copy invitation"}
+              </Button>
+            </section>
+          )}
+          <details className="record-details">
+            <summary>Agreement history and technical record</summary>
+            <p>
+              {demo
+                ? "Simulated evidence and payment identifiers."
+                : "GenLayer Studionet is a development network. Checks are experimental advice; client approval determines payment for new agreements."}
+            </p>
+            <ShortHash label="Agreement" value={a.digest} />
+            <ShortHash label="Merchant" value={a.payment.merchantId} />
+            <ShortHash
+              label="PayPal authorization"
+              value={a.payment.authorizationId}
+            />
+            <ShortHash label="PayPal payment" value={a.payment.captureId} />
+            <ShortHash
+              label="Verification transaction"
+              value={s?.verification.txId}
+            />
+            <ol className="history-list">
+              {a.events
+                .slice()
+                .reverse()
+                .map((e) => (
+                  <li key={e.id}>
+                    <p>{e.message}</p>
+                    <time>{formatDate(e.at)}</time>
+                  </li>
+                ))}
+            </ol>
+          </details>
+          {!paid && !terminal && !pending && (
+            <div className="cancel-area">
+              {canceling ? (
+                <>
+                  <p>
+                    Cancel this agreement? Any uncollected authorization will be
+                    released where possible. This cannot undo an already
+                    processed payment.
+                  </p>
+                  <div className="action-row">
+                    <Button
+                      className="danger"
+                      busy={busy === "cancel"}
+                      onClick={() => action("cancel")}
+                    >
+                      Cancel agreement
+                    </Button>
+                    <Button
+                      className="secondary"
+                      onClick={() => setCanceling(false)}
+                    >
+                      Keep agreement
+                    </Button>
+                  </div>
+                </>
+              ) : (
+                <button
+                  className="text-link"
+                  onClick={() => setCanceling(true)}
+                >
+                  Cancel agreement
+                </button>
+              )}
+            </div>
+          )}
+          {(paid || terminal) && seller && !demo && (
+            <Link
+              className="button secondary"
+              href={"/agreements/new?copy=" + id}
+            >
+              Create another revision <ArrowRight size={18} />
+            </Link>
+          )}
+          {paid && demo && (
+            <div className="demo-finish">
+              <h2>Ready to use your own page?</h2>
+              <p>
+                Your real workspace keeps your clients, agreements and payment
+                setup separate from this example.
+              </p>
+              <Link className="button" href="/workspace">
+                Open real workspace <ArrowRight size={18} />
+              </Link>
+            </div>
+          )}
         </>
       )}
     </Shell>
-  );
-}
-function FingerprintIcon() {
-  return <ShieldCheck size={19} />;
-}
-function EvidencePanel({ agreement: a }: { agreement: Agreement }) {
-  const current = currentSubmission(a);
-  const [selected, setSelected] = useState(current?.id || "baseline");
-  const e =
-    selected === "baseline"
-      ? a.baseline
-      : a.submissions.find((s) => s.id === selected)?.evidence;
-  return (
-    <section className="panel evidence-panel">
-      <div className="panel-title">
-        <Globe2 size={20} />
-        <div>
-          <h2>Evidence you can inspect</h2>
-          <p>Captured text and links, bound to an immutable digest.</p>
-        </div>
-      </div>
-      <label className="evidence-select">
-        Captured version
-        <select
-          value={selected}
-          onChange={(event) => setSelected(event.target.value)}
-        >
-          <option value="baseline">Original page</option>
-          {a.submissions
-            .filter((s) => s.evidence)
-            .map((s) => (
-              <option key={s.id} value={s.id}>
-                Revision {s.revision} · {formatDate(s.evidence?.capturedAt)}
-              </option>
-            ))}
-        </select>
-      </label>
-      {!e ? (
-        <div className="empty">
-          <LoaderCircle size={22} />
-          <p>Evidence will appear once capture completes.</p>
-        </div>
-      ) : (
-        <>
-          <div className="evidence-meta">
-            <Badge tone="green">
-              {e.complete ? "Capture complete" : "Partial capture"}
-            </Badge>
-            <span>{formatDate(e.capturedAt)}</span>
-          </div>
-          {e.screenshotHash ? (
-            <a
-              href={`/api/agreements/${a.id}/image?hash=${encodeURIComponent(e.screenshotHash)}`}
-              target="_blank"
-              rel="noreferrer"
-            >
-              <img
-                className="evidence-screenshot"
-                src={`/api/agreements/${a.id}/image?hash=${encodeURIComponent(e.screenshotHash)}`}
-                alt="Captured website at the time of submission"
-              />
-            </a>
-          ) : (
-            <div className="text-snapshot">
-              <span className="snapshot-label">
-                TEXT SNAPSHOT ·{" "}
-                {selected === "baseline" ? "ORIGINAL" : "SUBMITTED VERSION"}
-              </span>
-              <h3>{e.title}</h3>
-              <p>{e.blocks.find((b) => b.kind === "heading")?.text}</p>
-            </div>
-          )}
-          <div className="evidence-blocks">
-            <h3>Visible text</h3>
-            {e.blocks.map((b) => (
-              <article key={b.id}>
-                <code>
-                  {(selected === "baseline" ? "baseline:" : "current:") + b.id}
-                </code>
-                <p>{b.text}</p>
-              </article>
-            ))}
-            <h3>Link destinations</h3>
-            {e.links.map((l) => (
-              <article key={l.id}>
-                <code>
-                  {(selected === "baseline" ? "baseline:" : "current:") + l.id}
-                  {l.primary ? " · primary" : ""}
-                </code>
-                <strong>{l.text}</strong>
-                <p className="evidence-url">{l.href}</p>
-              </article>
-            ))}
-          </div>
-          <div className="evidence-hashes">
-            <ShortHash label="Artifact hash" value={e.artifactHash} />
-            <ShortHash label="Content hash" value={e.contentHash} />
-          </div>
-        </>
-      )}
-    </section>
-  );
-}
-function Receipt({ agreement: a }: { agreement: Agreement }) {
-  const s = currentSubmission(a);
-  const paid = a.payment.status === "PAID";
-  return (
-    <section className="panel receipt-panel">
-      <div className="receipt-brand">
-        <span className="logo-mark">
-          <Check size={20} />
-        </span>
-        <span>revisionpay</span>
-        <Badge tone={paid ? "green" : "amber"}>
-          {paid ? "Completed receipt" : "Agreement record"}
-        </Badge>
-      </div>
-      <div className="receipt-hero">
-        <FileCheck2 size={30} />
-        <h2>
-          {paid ? "Good work, accounted for." : "A record of the work so far."}
-        </h2>
-        <p>{a.title}</p>
-        <strong>
-          {money(a.amountMinor)}
-          <small>USD</small>
-        </strong>
-      </div>
-      <div className="receipt-summary">
-        <div>
-          <span>Client</span>
-          <strong>{a.clientName}</strong>
-        </div>
-        <div>
-          <span>Environment</span>
-          <strong>
-            {a.mode === "demo"
-              ? "Simulation — no real transactions"
-              : "PayPal sandbox + Studionet"}
-          </strong>
-        </div>
-        <div>
-          <span>Payment status</span>
-          <strong>{a.payment.status.replaceAll("_", " ")}</strong>
-        </div>
-        <div>
-          <span>Acceptance basis</span>
-          <strong>
-            {a.manualAcceptanceId
-              ? "Explicit buyer approval"
-              : paid
-                ? "Finalized AI PASS"
-                : "Not collected"}
-          </strong>
-        </div>
-        <div>
-          <span>Completed</span>
-          <strong>{formatDate(a.payment.capturedAt)}</strong>
-        </div>
-      </div>
-      <div className="receipt-refs">
-        <ShortHash label="Agreement digest" value={a.digest} />
-        <ShortHash
-          label="PayPal authorization"
-          value={a.payment.authorizationId}
-        />
-        <ShortHash label="PayPal capture" value={a.payment.captureId} />
-        <ShortHash label="Contract" value={a.contract.address} />
-        <ShortHash
-          label="Verification transaction"
-          value={s?.verification.txId}
-        />
-        <ShortHash label="Evidence" value={s?.evidence?.artifactHash} />
-      </div>
-      <a
-        className="button secondary full"
-        href={`/api/agreements/${a.id}/receipt`}
-        download={`revisionpay-${a.id.slice(0, 8)}.json`}
-      >
-        <Download size={16} />
-        Download complete JSON record
-      </a>
-      <p className="receipt-note">
-        {a.mode === "demo"
-          ? "This is a simulated demonstration, not proof of a PayPal transaction or an on-chain decision."
-          : "The JSON record includes frozen terms, consent, captured evidence, verification findings, and provider references."}
-      </p>
-    </section>
   );
 }

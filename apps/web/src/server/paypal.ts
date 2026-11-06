@@ -7,8 +7,56 @@ import {
 } from "@revisionpay/domain";
 import { configuration } from "./config";
 
-// All money calls are pinned to PayPal's sandbox. There is no live-mode switch.
-const BASE = "https://api-m.sandbox.paypal.com";
+type Environment = "sandbox" | "live";
+type Integration = "DIRECT" | "PLATFORM";
+export function paymentIntegration(a: Agreement): Integration {
+  return (
+    a.terms?.paymentIntegration ||
+    a.payment.integration ||
+    (a.mode === "live" ? "PLATFORM" : "DIRECT")
+  );
+}
+function credentials(environment: Environment, integration: Integration) {
+  const c = configuration();
+  return environment === "live"
+    ? { clientId: c.liveClientId, secret: c.liveSecret }
+    : integration === "PLATFORM"
+      ? { clientId: c.platformClientId, secret: c.platformSecret }
+      : { clientId: c.paypalClientId, secret: c.paypalSecret };
+}
+const base = (environment: Environment) =>
+  environment === "live"
+    ? "https://api-m.paypal.com"
+    : "https://api-m.sandbox.paypal.com";
+function merchant(a: Agreement) {
+  return (
+    a.terms?.merchantId ||
+    a.payment.merchantId ||
+    (a.mode !== "live" ? configuration().paypalMerchantId : "")
+  );
+}
+function allowLive(a: Agreement) {
+  requireCondition(
+    a.mode !== "live" ||
+      (configuration().liveEnabled && !configuration().settlementPaused),
+    "LIVE_UNAVAILABLE",
+    "Live payments are not available yet. Your agreement is saved.",
+    503,
+  );
+}
+function scopedRequest(a: Agreement) {
+  const integration = paymentIntegration(a);
+  return (path: string, method = "GET", body?: unknown, requestId?: string) =>
+    requestPayPal(
+      path,
+      method,
+      body,
+      requestId,
+      a.mode === "live" ? "live" : "sandbox",
+      integration === "PLATFORM" ? merchant(a) : undefined,
+      integration,
+    );
+}
 type Resource = Record<string, any>;
 export class ProviderError extends DomainError {
   constructor(
@@ -21,22 +69,24 @@ export class ProviderError extends DomainError {
   }
 }
 let cached: { key: string; token: string; until: number } | undefined;
-async function token(): Promise<string> {
-  const c = configuration();
+async function token(
+  environment: Environment,
+  integration: Integration,
+): Promise<string> {
+  const { clientId, secret } = credentials(environment, integration);
   requireCondition(
-    c.paypalClientId && c.paypalSecret,
+    clientId && secret,
     "PAYPAL_NOT_CONFIGURED",
-    "PayPal sandbox credentials are not configured.",
+    "PayPal credentials are not configured.",
     503,
   );
-  if (cached?.key === c.paypalClientId && cached.until > Date.now())
+  if (cached?.key === environment + ":" + clientId && cached.until > Date.now())
     return cached.token;
-  const response = await fetch(BASE + "/v1/oauth2/token", {
+  const response = await fetch(base(environment) + "/v1/oauth2/token", {
     method: "POST",
     headers: {
       Authorization:
-        "Basic " +
-        Buffer.from(c.paypalClientId + ":" + c.paypalSecret).toString("base64"),
+        "Basic " + Buffer.from(clientId + ":" + secret).toString("base64"),
       "Content-Type": "application/x-www-form-urlencoded",
     },
     body: "grant_type=client_credentials",
@@ -46,32 +96,51 @@ async function token(): Promise<string> {
   if (!response.ok || !body.access_token)
     throw new ProviderError(
       "PAYPAL_AUTH_FAILED",
-      "PayPal sandbox could not authenticate this application.",
+      "PayPal could not authenticate this application.",
       false,
       response.status,
     );
   cached = {
-    key: c.paypalClientId,
+    key: environment + ":" + clientId,
     token: body.access_token,
     until: Date.now() + Math.max(0, Number(body.expires_in) - 120) * 1000,
   };
   return cached.token;
 }
-async function request(
+export async function requestPayPal(
   path: string,
   method = "GET",
   body?: unknown,
   requestId?: string,
+  environment: Environment = "sandbox",
+  merchantId?: string,
+  integration: Integration = "DIRECT",
 ): Promise<Resource> {
-  const access = await token();
+  const access = await token(environment, integration);
+  const c = configuration();
+  const assertion = merchantId
+    ? Buffer.from(JSON.stringify({ alg: "none" })).toString("base64url") +
+      "." +
+      Buffer.from(
+        JSON.stringify({
+          iss: credentials(environment, integration).clientId,
+          payer_id: merchantId,
+        }),
+      ).toString("base64url") +
+      "."
+    : "";
   let response: Response;
   try {
-    response = await fetch(BASE + path, {
+    response = await fetch(base(environment) + path, {
       method,
       headers: {
         Authorization: "Bearer " + access,
         "Content-Type": "application/json",
         Prefer: "return=representation",
+        ...(assertion ? { "PayPal-Auth-Assertion": assertion } : {}),
+        ...(c.partnerCode
+          ? { "PayPal-Partner-Attribution-Id": c.partnerCode }
+          : {}),
         ...(requestId ? { "PayPal-Request-Id": requestId } : {}),
       },
       ...(body === undefined ? {} : { body: JSON.stringify(body) }),
@@ -102,7 +171,7 @@ async function request(
       .slice(0, 100);
     throw new ProviderError(
       "PAYPAL_" + issue,
-      `PayPal sandbox returned ${issue.toLowerCase().replaceAll("_", " ")}.`,
+      `PayPal returned ${issue.toLowerCase().replaceAll("_", " ")}.`,
       response.status >= 500 || response.status === 429,
       response.status,
     );
@@ -130,8 +199,7 @@ export function validateOrder(a: Agreement, order: Resource): Resource {
     "The PayPal order does not match the agreed amount.",
   );
   requireCondition(
-    configuration().paypalMerchantId &&
-      unit.payee?.merchant_id === configuration().paypalMerchantId,
+    merchant(a) && unit.payee?.merchant_id === merchant(a),
     "PAYPAL_MERCHANT_MISMATCH",
     "The PayPal order belongs to a different merchant.",
   );
@@ -146,7 +214,7 @@ export function validateAmount(a: Agreement, value: Resource) {
   );
 }
 export function matchesWebhook(a: Agreement, event: Resource): boolean {
-  if (a.mode !== "sandbox") return false;
+  if (a.mode === "demo") return false;
   const resource = event.resource || {};
   const related = resource.supplementary_data?.related_ids || {};
   const same = (saved: string | undefined, incoming: unknown) =>
@@ -183,11 +251,13 @@ export interface PaymentGateway {
 }
 export const paypal: PaymentGateway = {
   async createOrder(a, requestId) {
+    allowLive(a);
+    const request = scopedRequest(a);
     const c = configuration();
     requireCondition(
-      c.paypalMerchantId,
+      merchant(a),
       "PAYPAL_NOT_CONFIGURED",
-      "Configure the PayPal sandbox merchant ID.",
+      "Configure the PayPal merchant ID.",
       503,
     );
     const order = await request(
@@ -205,7 +275,7 @@ export const paypal: PaymentGateway = {
               currency_code: "USD",
               value: decimalAmount(a.amountMinor),
             },
-            payee: { merchant_id: c.paypalMerchantId },
+            payee: { merchant_id: merchant(a) },
           },
         ],
         payment_source: {
@@ -237,13 +307,18 @@ export const paypal: PaymentGateway = {
     const url = new URL(String(link));
     requireCondition(
       url.protocol === "https:" &&
-        ["www.sandbox.paypal.com", "sandbox.paypal.com"].includes(url.hostname),
+        (a.mode === "live"
+          ? ["www.paypal.com", "paypal.com"]
+          : ["www.sandbox.paypal.com", "sandbox.paypal.com"]
+        ).includes(url.hostname),
       "PAYPAL_APPROVAL_INVALID",
       "PayPal did not return a sandbox approval link.",
     );
     return { id: order.id, approvalUrl: url.href };
   },
   async authorize(a, requestId) {
+    allowLive(a);
+    const request = scopedRequest(a);
     const current = await request(`/v2/checkout/orders/${a.payment.orderId}`);
     const unit = validateOrder(a, current);
     if (unit.payments?.authorizations?.[0])
@@ -251,7 +326,7 @@ export const paypal: PaymentGateway = {
     requireCondition(
       current.status === "APPROVED",
       "BUYER_APPROVAL_REQUIRED",
-      "Complete approval in PayPal sandbox, then return here.",
+      "Complete approval in PayPal, then return here.",
     );
     const order = await request(
       `/v2/checkout/orders/${a.payment.orderId}/authorize`,
@@ -268,6 +343,7 @@ export const paypal: PaymentGateway = {
     return authFrom(a, order, approved.payments.authorizations[0]);
   },
   async readAuthorization(a) {
+    const request = scopedRequest(a);
     const order = await request(`/v2/checkout/orders/${a.payment.orderId}`);
     const unit = validateOrder(a, order);
     const auth = unit.payments?.authorizations?.[0];
@@ -282,6 +358,8 @@ export const paypal: PaymentGateway = {
     return authFrom(a, order, fresh);
   },
   async capture(a, requestId) {
+    allowLive(a);
+    const request = scopedRequest(a);
     const result = await request(
       `/v2/payments/authorizations/${a.payment.authorizationId}/capture`,
       "POST",
@@ -303,6 +381,7 @@ export const paypal: PaymentGateway = {
     return { id: result.id, status: result.status, at: result.create_time };
   },
   async findCapture(a) {
+    const request = scopedRequest(a);
     if (a.payment.captureId) {
       const result = await request(
         `/v2/payments/captures/${a.payment.captureId}`,
@@ -330,6 +409,7 @@ export const paypal: PaymentGateway = {
     return { id: capture.id, status: capture.status, at: capture.create_time };
   },
   async void(a, requestId) {
+    const request = scopedRequest(a);
     await request(
       `/v2/payments/authorizations/${a.payment.authorizationId}/void`,
       "POST",
@@ -406,8 +486,15 @@ export function demoGateway(): PaymentGateway {
 export async function verifyWebhook(
   headers: Headers,
   event: unknown,
+  environment: Environment = "sandbox",
+  integration: Integration = "DIRECT",
 ): Promise<boolean> {
-  const id = configuration().paypalWebhookId;
+  const id =
+    environment === "live"
+      ? configuration().liveWebhookId
+      : integration === "PLATFORM"
+        ? configuration().platformWebhookId
+        : configuration().paypalWebhookId;
   if (!id) return false;
   const keys = [
     "paypal-auth-algo",
@@ -420,11 +507,14 @@ export async function verifyWebhook(
   const cert = new URL(headers.get("paypal-cert-url")!);
   if (
     cert.protocol !== "https:" ||
-    (cert.hostname !== "api.sandbox.paypal.com" &&
-      cert.hostname !== "api-m.sandbox.paypal.com")
+    !(
+      environment === "live"
+        ? ["api.paypal.com", "api-m.paypal.com"]
+        : ["api.sandbox.paypal.com", "api-m.sandbox.paypal.com"]
+    ).includes(cert.hostname)
   )
     return false;
-  const result = await request(
+  const result = await requestPayPal(
     "/v1/notifications/verify-webhook-signature",
     "POST",
     {
@@ -436,6 +526,10 @@ export async function verifyWebhook(
       webhook_id: id,
       webhook_event: event,
     },
+    undefined,
+    environment,
+    undefined,
+    integration,
   );
   return result.verification_status === "SUCCESS";
 }

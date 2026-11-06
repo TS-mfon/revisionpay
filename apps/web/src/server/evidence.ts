@@ -113,7 +113,7 @@ export async function captureEvidence(
   if (
     evidence.requestId !== input.requestId ||
     evidence.sourceUrl !== new URL(a.sourceUrl).href ||
-    evidence.finalUrl !== evidence.sourceUrl ||
+    new URL(evidence.finalUrl).origin !== new URL(evidence.sourceUrl).origin ||
     !verifyEvidence(evidence)
   )
     throw new DomainError(

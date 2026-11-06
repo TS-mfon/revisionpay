@@ -1,223 +1,145 @@
-"use client";
 import Link from "next/link";
-import { useState } from "react";
-import { useRouter } from "next/navigation";
 import {
   ArrowRight,
-  ArrowUpRight,
   Check,
+  FileText,
+  CreditCard,
   CheckCheck,
-  FileCheck2,
-  Fingerprint,
-  LockKeyhole,
-  ShieldCheck,
-  Sparkles,
 } from "lucide-react";
-import { api, Logo, Button, Badge, ErrorBox } from "@/components/ui";
+import { Logo, ModeSwitch } from "@/components/ui";
 export default function Home() {
-  const [busy, setBusy] = useState(false),
-    [error, setError] = useState("");
-  const router = useRouter();
-  async function start() {
-    setBusy(true);
-    setError("");
-    try {
-      const data = await api("demo", {});
-      router.push("/agreements/" + data.agreement.id);
-    } catch (e) {
-      setError((e as Error).message);
-      setBusy(false);
-    }
-  }
   return (
-    <div className="landing">
-      <header className="landing-nav">
+    <div className="home">
+      <header className="product-header">
         <Logo />
-        <nav>
-          <a href="#how-it-works">How it works</a>
-          <Link href="/workspace">
-            Workspace <ArrowUpRight size={14} />
-          </Link>
-        </nav>
-        <Link className="button secondary small" href="/login">
-          Seller sign in <ArrowRight size={15} />
+        <ModeSwitch />
+        <Link className="header-signin" href="/login">
+          Sign in <ArrowRight size={16} />
         </Link>
       </header>
       <main>
-        <section className="hero">
-          <div className="hero-copy">
-            <div className="eyebrow">
-              <span className="status-dot" />
-              FROM “ALMOST DONE” TO PAID
-            </div>
+        <section className="home-hero">
+          <div className="hero-intro">
+            <p className="eyebrow">FOR FREELANCERS & THEIR CLIENTS</p>
             <h1>
-              Good work.
+              Agree on the changes.
               <br />
-              Clear terms.
+              Get the work done.
               <br />
-              <span>Payment, resolved.</span>
+              <em>Get paid on approval.</em>
             </h1>
-            <p className="hero-description">
-              Agree on a website revision. Let AI check the delivered work. Get
-              paid through PayPal when the agreed conditions are met.
+            <p className="hero-lead">
+              One website page. One clear checklist. One agreed fee. Your client
+              reviews the finished work before approving payment.
             </p>
             <div className="hero-actions">
-              <Button onClick={start} busy={busy}>
-                Try the working demo <ArrowRight size={18} />
-              </Button>
-              <a className="text-link" href="#how-it-works">
-                See how it works <ArrowUpRight size={15} />
-              </a>
+              <Link className="button" href="/workspace">
+                Use RevisionPay <ArrowRight size={20} />
+              </Link>
+              <Link className="button secondary" href="/demo">
+                Try the guided demo
+              </Link>
             </div>
-            <ErrorBox message={error} />
             <p className="hero-caption">
-              <LockKeyhole size={13} />
-              No account required for the simulated demo.
+              Start with a draft. No crypto wallet or payment required.
             </p>
-            <div className="hero-rails">
-              <span>
-                Familiar payments.
-                <br />
-                <strong>PayPal sandbox</strong>
-              </span>
-              <span className="rail-plus">+</span>
-              <span>
-                Verifiable decisions.
-                <br />
-                <strong>GenLayer Studionet</strong>
-              </span>
-            </div>
           </div>
-          <div className="hero-art">
-            <div className="art-orbit orbit-one" />
-            <div className="art-orbit orbit-two" />
-            <div className="illustration-label">
-              <span className="status-dot" />A SHARED DEFINITION OF DONE
+          <div
+            className="example-document"
+            aria-label="Example revision agreement"
+          >
+            <div className="document-label">
+              <FileText size={18} />
+              <span>WHAT YOUR CLIENT SEES</span>
+              <span className="example-stamp">Example</span>
             </div>
-            <div className="hero-agreement">
-              <div className="hero-card-top">
-                <span className="client-icon">
-                  N<span>✳</span>
-                </span>
-                <Badge tone="green">Ready to collect</Badge>
-              </div>
-              <small>NORTHSTAR STUDIO</small>
-              <h2>
-                One page.
-                <br />
-                Every promise kept.
-              </h2>
-              <div className="mini-checks">
-                {[
-                  "14-day trial, clearly explained",
-                  "$29/month, cancel anytime",
-                  "The right link, in the right place",
-                ].map((t) => (
-                  <div key={t}>
-                    <Check size={15} />
-                    <span>{t}</span>
-                  </div>
-                ))}
-              </div>
-              <div className="hero-card-footer">
-                <div>
-                  <small>REVISION FEE</small>
-                  <strong>
-                    $180<span>.00</span>
-                  </strong>
-                </div>
-                <div className="seal">
-                  <ShieldCheck size={20} />
-                  <span>
-                    Agreed.
-                    <br />
-                    Verified.
-                  </span>
-                </div>
-              </div>
+            <h2>Make the pricing page clearer</h2>
+            <p>
+              Alex Morgan <span aria-hidden="true">→</span> Northstar Studio
+            </p>
+            <div className="example-amount">
+              <span>Fixed revision fee</span>
+              <strong>
+                $180<span> USD</span>
+              </strong>
             </div>
-            <div className="floating-note">
-              <span>
-                <CheckCheck size={19} />
-              </span>
+            <ul className="plain-checks">
+              {[
+                "Explain the 14-day free trial",
+                "Keep $29/month and cancel anytime",
+                "Link the button to the trial signup",
+              ].map((t) => (
+                <li key={t}>
+                  <Check size={18} />
+                  {t}
+                </li>
+              ))}
+            </ul>
+            <div className="document-bottom">
+              <CreditCard size={23} />
               <div>
-                <strong>The work matches the agreement.</strong>
-                <small>Final verification → authorized payment</small>
+                <strong>You approve before you pay.</strong>
+                <p>Authorize the fee first. Review the work when it’s ready.</p>
               </div>
             </div>
-            <p className="art-caption">Illustrative workflow · no real money</p>
           </div>
         </section>
-        <section id="how-it-works" className="how-section">
-          <div className="section-heading">
-            <div>
-              <p className="eyebrow">A BETTER HANDOFF</p>
-              <h2>
-                Make “done” something
-                <br />
-                you can both agree on.
-              </h2>
-            </div>
-            <p>
-              For short website copy revisions.
-              <br />
-              One page, a fixed fee, and explicit requirements.
-            </p>
-          </div>
-          <div className="feature-grid">
+        <section id="how-it-works" className="how-it-works">
+          <p className="eyebrow">A CLEAR NEXT STEP, FOR BOTH OF YOU</p>
+          <h2>
+            From “can you change this?”
+            <br />
+            to a finished revision.
+          </h2>
+          <div className="steps-grid">
             {[
               {
                 n: "01",
-                icon: FileCheck2,
-                title: "Agree before the work",
-                text: "Freeze the page, fee, and acceptance criteria. Your buyer authorizes the revision payment through PayPal.",
+                title: "Agree on the work",
+                text: "The freelancer lists 3–5 changes to one public page and sets a fixed fee. The client reviews the agreement and authorizes payment.",
               },
               {
                 n: "02",
-                icon: Sparkles,
-                title: "Let the evidence speak",
-                text: "GenLayer checks the submitted page against each requirement, with findings tied to captured evidence.",
+                title: "Check the updated page",
+                text: "Publish the changes, then submit the page. AI compares the captured copy and links with the agreed requirements.",
               },
               {
                 n: "03",
-                icon: Fingerprint,
-                title: "Close the loop",
-                text: "After a final PASS and a matching fresh page check, collect the authorized fee. Keep one connected receipt.",
+                title: "Review, approve, pay",
+                text: "The client reviews the work and findings. They can request changes or approve the agreed payment through PayPal.",
               },
-            ].map((f) => (
-              <article key={f.n}>
-                <div className="feature-top">
-                  <f.icon size={22} />
-                  <span>{f.n}</span>
-                </div>
-                <h3>{f.title}</h3>
-                <p>{f.text}</p>
+            ].map((s) => (
+              <article key={s.n}>
+                <span>{s.n}</span>
+                <h3>{s.title}</h3>
+                <p>{s.text}</p>
               </article>
             ))}
           </div>
         </section>
-        <section className="trust-strip">
-          <ShieldCheck size={26} />
+        <section className="scope-section">
+          <CheckCheck size={28} />
           <div>
-            <strong>Clear boundaries build trust.</strong>
+            <h2>Small, specific website revisions.</h2>
             <p>
-              An incomplete revision stays uncharged. Buyers can request review
-              before collection. Manual approval is recorded separately.
+              Public page copy and link changes. USD $25–$500. Three submissions
+              and a two-day delivery window. AI findings help your review; your
+              client makes the payment decision.
+            </p>
+            <p>
+              Connected PayPal sandbox testing is available for the hackathon.
+              Live payments open after platform approval and validation.
             </p>
           </div>
-          <Button className="secondary" onClick={start} busy={busy}>
-            See it in action <ArrowRight size={16} />
-          </Button>
+          <Link href="/workspace" className="button">
+            Create a revision <ArrowRight size={18} />
+          </Link>
         </section>
       </main>
-      <footer className="landing-footer">
+      <footer className="product-footer">
         <Logo />
-        <span>
-          A PayPal + AI hackathon project · Studionet is a development network.
-        </span>
-        <Link href="/login">
-          Open your studio <ArrowUpRight size={14} />
-        </Link>
+        <span>PayPal payments · GenLayer checks</span>
+        <Link href="/help">How payment works</Link>
       </footer>
     </div>
   );

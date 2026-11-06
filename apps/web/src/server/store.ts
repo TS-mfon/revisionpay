@@ -36,8 +36,8 @@ export async function mongoClient() {
     minPoolSize: 0,
     maxIdleTimeMS: 60000,
     serverSelectionTimeoutMS: 5000,
-      connectTimeoutMS: 8000,
-      socketTimeoutMS: 15000,
+    connectTimeoutMS: 8000,
+    socketTimeoutMS: 15000,
   })
     .connect()
     .catch((e) => {
@@ -59,6 +59,7 @@ export interface Store {
   claimJob(agreementId?: string): Promise<Job | undefined>;
   finishJob(job: Job, dueAt?: string, error?: string): Promise<void>;
   getValue<T>(key: string): Promise<T | undefined>;
+  listValues<T>(prefix: string): Promise<T[]>;
   putValue<T>(key: string, value: T, ifAbsent?: boolean): Promise<T>;
   consumeQuota(key: string, limit: number): Promise<boolean>;
   leaseSlot(name: string, leaseToken: string, ms: number): Promise<boolean>;
@@ -79,7 +80,7 @@ export class MongoStore implements Store {
         .collection<Doc<Agreement>>("agreements")
         .find(tenantId ? { "value.tenantId": tenantId } : {})
         .sort({ "value.updatedAt": -1 })
-        .limit(250)
+        .limit(tenantId ? 250 : 0)
         .toArray()
     ).map((d) => d.value);
   }
@@ -218,6 +219,16 @@ export class MongoStore implements Store {
     return (
       await this.db.collection<Doc<T>>("service_state").findOne({ _id: key })
     )?.value;
+  }
+  async listValues<T>(prefix: string) {
+    const escaped = prefix.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    return (
+      await this.db
+        .collection<Doc<T>>("service_state")
+        .find({ _id: { $regex: "^" + escaped } })
+        .limit(500)
+        .toArray()
+    ).map((d) => d.value);
   }
   async putValue<T>(key: string, value: T, ifAbsent = false) {
     const d = await this.db
@@ -412,6 +423,13 @@ export class LocalStore implements Store {
   getValue<T>(key: string) {
     return this.atomic((d) => d.values[key] as T | undefined);
   }
+  listValues<T>(prefix: string) {
+    return this.atomic((d) =>
+      Object.entries(d.values)
+        .filter(([key]) => key.startsWith(prefix))
+        .map(([, value]) => value as T),
+    );
+  }
   putValue<T>(key: string, v: T, ifAbsent = false) {
     return this.atomic((d) => {
       if (!ifAbsent || !(key in d.values)) d.values[key] = clone(v);
@@ -455,7 +473,7 @@ export async function getStore(): Promise<Store> {
     return (globals.rpStore = new MongoStore(
       (await mongoClient()).db(c.database),
     ));
-  if (process.env.VERCEL || c.mode !== "demo")
+  if (process.env.VERCEL || process.env.NETLIFY || c.mode !== "demo")
     throw new DomainError(
       "DATABASE_NOT_CONFIGURED",
       "Connect MongoDB Atlas to enable this environment.",

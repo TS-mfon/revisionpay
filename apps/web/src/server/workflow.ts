@@ -14,6 +14,7 @@ import { digest } from "@revisionpay/domain/crypto";
 import { mutate, type Store } from "./store";
 import { configuration } from "./config";
 import { audit } from "./model";
+import { notifyAgreement } from "./mail";
 import { captureEvidence } from "./evidence";
 import {
   deployAgreement,
@@ -81,7 +82,11 @@ export function applyAuthorization(a: Agreement, auth: AuthorizationReceipt) {
   p.grossMinor = a.amountMinor;
   p.currency = a.currency;
   p.merchantId =
-    a.mode === "demo" ? "simulated-merchant" : configuration().paypalMerchantId;
+    a.mode === "demo"
+      ? "simulated-merchant"
+      : a.terms?.merchantId ||
+        a.payment.merchantId ||
+        configuration().paypalMerchantId;
   if (p.status === "AUTHORIZED") {
     a.state = "ACTIVE";
     audit(
@@ -105,7 +110,7 @@ function applyCapture(a: Agreement, receipt: CaptureReceipt) {
       "CAPTURE_COMPLETED",
       a.mode === "demo"
         ? "Simulated payment completed. No money moved."
-        : "PayPal sandbox confirmed the full revision payment.",
+        : "PayPal confirmed the full revision payment.",
       a.mode === "demo" ? "system" : "paypal",
       { captureId: receipt.id },
     );
@@ -168,6 +173,9 @@ export class Workflow {
     try {
       const next = await this.advance(job.agreementId);
       await this.store.finishJob(job, next);
+      const current = await this.store.getAgreement(job.agreementId);
+      if (current)
+        await notifyAgreement(this.store, current).catch(() => undefined);
     } catch (e) {
       const message =
         e instanceof DomainError
@@ -317,7 +325,7 @@ export class Workflow {
       try {
         const baseline = await this.services.capture(this.store, a, true);
         await mutate(this.store, id, (x) => {
-          if (x.state !== "DRAFT") return;
+          if (x.state !== "DRAFT" || x.sourceUrl !== a.sourceUrl) return;
           x.baseline = baseline;
           x.baselineStatus = "READY";
           x.lastError = undefined;
@@ -331,6 +339,7 @@ export class Workflow {
         });
       } catch (e) {
         await mutate(this.store, id, (x) => {
+          if (x.state !== "DRAFT" || x.sourceUrl !== a.sourceUrl) return;
           x.baselineStatus = "FAILED";
           x.lastError =
             e instanceof DomainError
@@ -341,6 +350,48 @@ export class Workflow {
       return;
     }
     if (a.payment.status !== "AUTHORIZED") return;
+    const s = currentSubmission(a);
+    if (s?.state === "CAPTURING") {
+      try {
+        const evidence = await this.services.capture(this.store, a);
+        if (
+          a.submissions.some(
+            (other) =>
+              other.id !== s.id &&
+              other.evidence?.contentHash === evidence.contentHash,
+          )
+        )
+          throw new DomainError(
+            "UNCHANGED_SUBMISSION",
+            "This page matches an earlier submission. Publish a distinct revision before submitting again.",
+          );
+        await mutate(this.store, id, (x) => {
+          const sub = x.submissions.find((v) => v.id === s.id)!;
+          sub.evidence = evidence;
+          sub.state = "READY";
+          x.lastError = undefined;
+          audit(
+            x,
+            "REVISION_CAPTURED",
+            `Revision ${s.revision} was captured as immutable evidence.`,
+            "system",
+            { artifactHash: evidence.artifactHash },
+          );
+        });
+      } catch (e) {
+        await mutate(this.store, id, (x) => {
+          const sub = x.submissions.find((v) => v.id === s.id)!;
+          sub.state = "FAILED";
+          sub.verification.status = "FAILED";
+          sub.verification.error =
+            e instanceof DomainError
+              ? e.message
+              : "The page could not be captured.";
+        });
+      }
+      return later(0);
+    }
+    if (!s && a.termsVersion === "2") return a.payment.captureDeadline;
     const manuallyAccepted = hasManualAcceptance(a);
     if (!manuallyAccepted && a.contract.state === "NONE") {
       if (configuration().newJobsPaused) return later(60);
@@ -429,48 +480,7 @@ export class Workflow {
       }
       return later(8);
     }
-    const s = currentSubmission(a);
     if (!s) return a.payment.captureDeadline;
-    if (s.state === "CAPTURING") {
-      try {
-        const evidence = await this.services.capture(this.store, a);
-        if (
-          a.submissions.some(
-            (other) =>
-              other.id !== s.id &&
-              other.evidence?.contentHash === evidence.contentHash,
-          )
-        )
-          throw new DomainError(
-            "UNCHANGED_SUBMISSION",
-            "This page matches an earlier submission. Publish a distinct revision before submitting again.",
-          );
-        await mutate(this.store, id, (x) => {
-          const sub = x.submissions.find((v) => v.id === s.id)!;
-          sub.evidence = evidence;
-          sub.state = "READY";
-          x.lastError = undefined;
-          audit(
-            x,
-            "REVISION_CAPTURED",
-            `Revision ${s.revision} was captured as immutable evidence.`,
-            "system",
-            { artifactHash: evidence.artifactHash },
-          );
-        });
-      } catch (e) {
-        await mutate(this.store, id, (x) => {
-          const sub = x.submissions.find((v) => v.id === s.id)!;
-          sub.state = "FAILED";
-          sub.verification.status = "FAILED";
-          sub.verification.error =
-            e instanceof DomainError
-              ? e.message
-              : "The page could not be captured.";
-        });
-      }
-      return later(0);
-    }
     if (
       s.state !== "READY" ||
       (!manuallyAccepted && a.contract.state !== "READY")
@@ -641,7 +651,10 @@ export class Workflow {
       return later(8);
     }
     if (
-      (hasFinalPass(a) || hasManualAcceptance(a)) &&
+      ((a.terms?.settlementPolicy !== "BUYER_APPROVAL_REQUIRED" &&
+        a.mode !== "live" &&
+        hasFinalPass(a)) ||
+        hasManualAcceptance(a)) &&
       a.state === "ACTIVE" &&
       !a.reviewHoldAt
     ) {
@@ -699,7 +712,15 @@ export class Workflow {
       }
       return later(30);
     }
-    return a.payment.captureDeadline;
+    return (
+      a.payment.captureDeadline &&
+      new Date(
+        Math.min(
+          Date.parse(a.payment.captureDeadline),
+          Date.now() + 15 * 60000,
+        ),
+      ).toISOString()
+    );
   }
   private async failVerification(id: string, s: Submission, message: string) {
     await mutate(this.store, id, (x) => {

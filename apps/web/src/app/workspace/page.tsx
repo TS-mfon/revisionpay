@@ -1,15 +1,8 @@
 "use client";
 import Link from "next/link";
 import { useEffect, useState } from "react";
-import {
-  ArrowDownLeft,
-  ArrowUpRight,
-  CheckCheck,
-  FilePlus2,
-  Plus,
-  Search,
-} from "lucide-react";
-import { money, type Agreement } from "@revisionpay/domain";
+import { Plus, ArrowRight, FileText, Search } from "lucide-react";
+import { money, nextAction, type Agreement } from "@revisionpay/domain";
 import {
   api,
   Shell,
@@ -17,185 +10,160 @@ import {
   Loading,
   ErrorBox,
   Status,
-  formatDate,
+  agreementHref,
 } from "@/components/ui";
 export default function Workspace() {
-  const { who, error: authError, reload } = useMe();
-  const [agreements, setAgreements] = useState<Agreement[]>();
-  const [error, setError] = useState("");
-  const [query, setQuery] = useState("");
-  const [filter, setFilter] = useState("All agreements");
+  const { who, error: authError } = useMe(),
+    [agreements, setAgreements] = useState<Agreement[]>(),
+    [error, setError] = useState(""),
+    [filter, setFilter] = useState("All"),
+    [query, setQuery] = useState(""),
+    [profile, setProfile] = useState<any>();
   useEffect(() => {
-    if (who)
+    if (who) {
       void api("agreements")
         .then((d) => setAgreements(d.agreements))
         .catch((e) => setError(e.message));
+      if (who.role === "seller")
+        void api("profile")
+          .then(setProfile)
+          .catch(() => {});
+    }
   }, [who]);
   const visible = (agreements || []).filter(
     (a) =>
-      (a.title + a.clientName).toLowerCase().includes(query.toLowerCase()) &&
-      (filter === "All agreements" ||
-        (filter === "Completed"
-          ? a.payment.status === "PAID"
-          : a.payment.status !== "PAID" && a.state !== "CANCELED")),
+      (a.title + " " + a.clientName)
+        .toLowerCase()
+        .includes(query.toLowerCase()) &&
+      (filter === "All" || nextAction(a, who?.role).group === filter),
   );
   return (
-    <Shell who={who} onRole={reload}>
+    <Shell who={who}>
       <div className="page-heading">
         <div>
-          <p className="eyebrow">YOUR WORK, MOVING FORWARD</p>
-          <h1>Agreements</h1>
-          <p>One place for the work, the evidence, and the payment.</p>
+          <p className="eyebrow">YOUR REAL WORKSPACE</p>
+          <h1>
+            {who?.name
+              ? "Your next step, " + who.name.split(" ")[0] + "."
+              : "Your agreements"}
+          </h1>
+          <p>See what needs your attention and what happens next.</p>
         </div>
         {who?.role === "seller" && (
-          <Link href="/agreements/new" className="button">
-            <Plus size={17} />
-            New agreement
+          <Link className="button" href="/agreements/new">
+            <Plus size={18} />
+            New revision
           </Link>
         )}
       </div>
       <ErrorBox message={error || authError} />
       {who === null ? (
-        <div className="empty panel">
-          <FilePlus2 size={35} />
-          <h2>Your studio is one step away.</h2>
+        <section className="welcome-panel">
+          <FileText size={34} />
+          <h2>A clear agreement starts here.</h2>
           <p>
-            Sign in as the seller, open a buyer invitation, or try the private
-            demo.
+            Save your work, invite your client, and keep payment connected to
+            their approval.
           </p>
-          <Link className="button" href="/">
-            Start here <ArrowUpRight size={16} />
+          <Link className="button" href="/login">
+            Open your workspace <ArrowRight size={18} />
           </Link>
-        </div>
+          <Link className="text-link" href="/demo">
+            Explore an example first
+          </Link>
+        </section>
       ) : !agreements ? (
         <Loading />
       ) : (
         <>
-          <div className="metrics">
-            {[
-              {
-                title: "Awaiting completion",
-                value: money(
-                  agreements
-                    .filter((a) => a.payment.status === "AUTHORIZED")
-                    .reduce((n, a) => n + a.amountMinor, 0),
-                ),
-                caption: "Authorized, not yet charged",
-                icon: ArrowDownLeft,
-              },
-              {
-                title: "Work in progress",
-                value: String(
-                  agreements.filter((a) =>
-                    ["ACTIVE", "REVIEW_HOLD"].includes(a.state),
-                  ).length,
-                ).padStart(2, "0"),
-                caption: "Active revision agreements",
-                icon: FilePlus2,
-              },
-              {
-                title: "Payments completed",
-                value: money(
-                  agreements
-                    .filter((a) => a.payment.status === "PAID")
-                    .reduce((n, a) => n + a.amountMinor, 0),
-                ),
-                caption:
-                  who?.kind === "demo"
-                    ? "Simulated payments"
-                    : "Confirmed in PayPal sandbox",
-                icon: CheckCheck,
-              },
-            ].map((m) => (
-              <div className="metric panel" key={m.title}>
-                <div>
-                  <span>{m.title}</span>
-                  <m.icon size={19} />
-                </div>
-                <strong>{m.value}</strong>
-                <small>{m.caption}</small>
+          {profile?.merchant?.status !== "READY" && who?.role === "seller" && (
+            <div className="onboarding-strip">
+              <div>
+                <strong>Set up once. Keep every revision moving.</strong>
+                <p>
+                  Create a draft now. Connect PayPal before sending it to your
+                  client.
+                </p>
               </div>
-            ))}
-          </div>
-          <section className="panel agreements-panel">
-            <div className="list-toolbar">
-              <div className="filter-tabs">
-                {["All agreements", "In progress", "Completed"].map((f) => (
-                  <button
-                    className={f === filter ? "selected" : ""}
-                    onClick={() => setFilter(f)}
-                    key={f}
-                  >
-                    {f}
-                    {f === "All agreements" && <span>{agreements.length}</span>}
-                  </button>
-                ))}
-              </div>
-              <label className="search">
-                <Search size={16} />
-                <input
-                  aria-label="Search agreements"
-                  placeholder="Find an agreement…"
-                  value={query}
-                  onChange={(e) => setQuery(e.target.value)}
-                />
-              </label>
+              <Link className="button secondary" href="/settings">
+                Set up payments <ArrowRight size={16} />
+              </Link>
             </div>
-            <div className="agreement-table">
-              <div className="table-header">
-                <span>AGREEMENT / CLIENT</span>
-                <span>STATUS</span>
-                <span>REVISION FEE</span>
-                <span>LAST UPDATED</span>
+          )}
+          {agreements.length === 0 ? (
+            <section className="welcome-panel">
+              <span className="welcome-number">01</span>
+              <h2>What needs to change?</h2>
+              <p>
+                Start with a page link, a short checklist and your fee. We’ll
+                turn them into an agreement your client can review.
+              </p>
+              <Link className="button" href="/agreements/new">
+                Create your first revision <ArrowRight size={18} />
+              </Link>
+              <p className="small-text">
+                Your draft stays private until you send it.
+              </p>
+            </section>
+          ) : (
+            <section className="agreement-list">
+              <div className="list-toolbar">
+                <div className="filter-tabs" aria-label="Filter agreements">
+                  {["All", "Needs your action", "Waiting", "Completed"].map(
+                    (f) => (
+                      <button
+                        key={f}
+                        aria-pressed={f === filter}
+                        className={f === filter ? "selected" : ""}
+                        onClick={() => setFilter(f)}
+                      >
+                        {f}
+                      </button>
+                    ),
+                  )}
+                </div>
+                <label className="search">
+                  <Search size={18} />
+                  <input
+                    aria-label="Search agreements"
+                    placeholder="Find a client or revision"
+                    value={query}
+                    onChange={(e) => setQuery(e.target.value)}
+                  />
+                </label>
               </div>
               {visible.map((a) => (
                 <Link
-                  className="table-row"
+                  className="revision-row"
+                  href={agreementHref(a)}
                   key={a.id}
-                  href={"/agreements/" + a.id}
                 >
-                  <div className="agreement-cell">
-                    <span className="client-icon small">{a.clientName[0]}</span>
-                    <div>
-                      <strong>{a.title}</strong>
-                      <small>{a.clientName}</small>
-                    </div>
+                  <span className="row-avatar">{a.clientName[0]}</span>
+                  <div className="row-title">
+                    <strong>{a.title}</strong>
+                    <span>{a.clientName}</span>
                   </div>
                   <Status agreement={a} />
-                  <strong className="table-amount">
+                  <strong className="row-fee">
                     {money(a.amountMinor)}
                     <small>USD</small>
                   </strong>
-                  <span className="table-date">
-                    {formatDate(a.updatedAt)}
-                    <ArrowUpRight size={16} />
+                  <span className="row-next">
+                    {nextAction(a, who?.role).label}
+                    <ArrowRight size={18} />
                   </span>
                 </Link>
               ))}
               {visible.length === 0 && (
                 <div className="empty">
-                  <Search size={26} />
-                  <h3>
-                    {query ? "No matching agreements" : "Nothing here yet"}
-                  </h3>
-                  <p>
-                    {query
-                      ? "Try another search or status."
-                      : "Create an agreement to get the next revision moving."}
-                  </p>
+                  <h3>No agreements here.</h3>
+                  <p>Try another filter or search.</p>
                 </div>
               )}
-            </div>
-          </section>
-          <p className="under-table">
-            <ShieldMark />
-            Payments are collected only after the agreed conditions are met.
-          </p>
+            </section>
+          )}
         </>
       )}
     </Shell>
   );
-}
-function ShieldMark() {
-  return <CheckCheck size={15} />;
 }

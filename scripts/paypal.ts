@@ -6,7 +6,12 @@ import { saveEnv } from "./env";
 const base = "https://api-m.sandbox.paypal.com";
 async function main() {
   const c = configuration();
-  if (!c.paypalClientId || !c.paypalSecret)
+  const platform = process.argv.includes("--platform");
+  const clientId = platform ? c.platformClientId : c.paypalClientId;
+  const secret = platform ? c.platformSecret : c.paypalSecret;
+  const merchantId = platform ? c.partnerId : c.paypalMerchantId;
+  const webhookId = platform ? c.platformWebhookId : c.paypalWebhookId;
+  if (!clientId || !secret)
     throw new Error(
       "Save PAYPAL_CLIENT_ID and PAYPAL_CLIENT_SECRET in .env.local first.",
     );
@@ -14,8 +19,7 @@ async function main() {
     method: "POST",
     headers: {
       Authorization:
-        "Basic " +
-        Buffer.from(c.paypalClientId + ":" + c.paypalSecret).toString("base64"),
+        "Basic " + Buffer.from(clientId + ":" + secret).toString("base64"),
       "Content-Type": "application/x-www-form-urlencoded",
     },
     body: "grant_type=client_credentials",
@@ -33,7 +37,8 @@ async function main() {
   };
   console.log("PayPal sandbox credentials verified.");
   if (process.argv[2] === "webhook") {
-    const url = c.appUrl + "/api/webhooks/paypal";
+    const url =
+      c.appUrl + "/api/webhooks/paypal" + (platform ? "/platform" : "");
     if (!url.startsWith("https://"))
       throw new Error(
         "Set APP_URL to the hosted HTTPS application before registering a webhook.",
@@ -47,7 +52,7 @@ async function main() {
     const existing = hooks.find((hook: { url: string }) => hook.url === url);
     let id = existing?.id;
     const previous = hooks.find(
-      (hook: { id: string }) => hook.id === c.paypalWebhookId,
+      (hook: { id: string }) => hook.id === webhookId,
     );
     if (!id && previous) {
       const response = await fetch(
@@ -77,6 +82,12 @@ async function main() {
             "PAYMENT.CAPTURE.DENIED",
             "PAYMENT.CAPTURE.REFUNDED",
             "PAYMENT.CAPTURE.REVERSED",
+            ...(platform
+              ? [
+                  "MERCHANT.ONBOARDING.COMPLETED",
+                  "MERCHANT.PARTNER-CONSENT.REVOKED",
+                ]
+              : []),
           ].map((name) => ({ name })),
         }),
         signal: AbortSignal.timeout(20000),
@@ -89,11 +100,13 @@ async function main() {
     }
     if (typeof id !== "string")
       throw new Error("PayPal did not return a webhook ID.");
-    await saveEnv({ PAYPAL_WEBHOOK_ID: id });
+    await saveEnv({
+      [platform ? "PAYPAL_PLATFORM_WEBHOOK_ID" : "PAYPAL_WEBHOOK_ID"]: id,
+    });
     console.log("PayPal sandbox webhook configured for " + url);
     return;
   }
-  if (c.paypalMerchantId) {
+  if (merchantId) {
     console.log("Merchant ID is already configured.");
     return;
   }
@@ -123,10 +136,12 @@ async function main() {
     throw new Error(
       "PayPal did not return a merchant ID; copy the sandbox business merchant ID into PAYPAL_MERCHANT_ID.",
     );
-  await saveEnv({ PAYPAL_MERCHANT_ID: merchant });
+  await saveEnv({
+    [platform ? "PAYPAL_PARTNER_ID" : "PAYPAL_MERCHANT_ID"]: merchant,
+  });
   await fs.mkdir(".local", { recursive: true });
   await fs.writeFile(
-    ".local/paypal-check.json",
+    platform ? ".local/paypal-platform-check.json" : ".local/paypal-check.json",
     JSON.stringify(
       {
         checkedAt: new Date().toISOString(),

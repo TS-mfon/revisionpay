@@ -4,9 +4,22 @@ Agree on a website revision, verify the delivered version, and collect the autho
 
 [Open RevisionPay](https://revisionpay.vercel.app) · [Source repository](https://github.com/TS-mfon/revisionpay)
 
-RevisionPay connects **PayPal sandbox authorizations and capture** with **GenLayer Studionet Intelligent Contracts**. A seller freezes 3–5 requirements for one public page and a fixed USD fee. The buyer accepts those terms and authorizes payment. The app captures the delivered page; GenLayer evaluates each requirement against immutable text and link evidence. A successful finalized PASS and a fresh matching page permit one full capture. An incomplete or uncertain revision remains uncharged. Buyers can request review or explicitly accept a captured revision themselves.
+RevisionPay gives freelancers and clients a clear path through a short website
+revision: agree on 3–5 changes, authorize one fee, submit the updated public page,
+then let the **client approve the finished work before payment is collected**.
 
-This is a single-merchant hackathon prototype. All provider money calls are pinned to PayPal sandbox. Studionet is a development environment. The public **Demo simulation** uses deterministic fixtures for both payments and verification, clearly labeled throughout the interface; it is useful for trying the workflow without accounts but is not proof of a PayPal or blockchain transaction.
+The site now has a **Real workspace / Demo** switch, saved drafts, a focused client
+review page, readable receipts and a guided example that does not require manual
+role switching. The real workspace supports connected PayPal sandbox APIs for the
+hackathon. Google sign-in saves each user's workspace. Live payments and self-service
+merchant connections remain gated on provider setup. GenLayer Studionet supplies experimental
+advice; it does not automatically collect fees on new agreements.
+
+See [product release and setup](docs/PRODUCT_RELEASE.md) for the Google OAuth setup, optional email
+sender domain, PayPal platform credentials, live launch gates and free Netlify
+deployment option. The existing `revisionpay.vercel.app` address remains the current
+hackathon host. Version-1 agreements keep their original frozen terms; the legacy
+architecture notes below describe those records where they differ.
 
 ## Run locally
 
@@ -19,20 +32,21 @@ pnpm run setup
 pnpm dev
 ```
 
-Open <http://localhost:3000> and choose **Try the working demo**. `pnpm run setup` generates local secrets and a dedicated Studionet key without overwriting an existing `.env.local`. Use `pnpm run setup`, not the unrelated `pnpm setup` command.
+Open <http://localhost:3000> and choose **Try the guided demo**. `pnpm run setup` generates local secrets and a dedicated Studionet key without overwriting an existing `.env.local`. Use `pnpm run setup`, not the unrelated `pnpm setup` command.
 
 The default `REVISIONPAY_MODE=demo` uses a local file under `.local/`. For local simulation, leave `MONGODB_URI` blank and set `APP_URL=http://localhost:3000`. Vercel deployments and sandbox operation require MongoDB. Keep `.env.local` private.
 
-### The demonstration
+### The guided demonstration
 
-1. Freeze the Northstar agreement and switch to buyer view.
-2. Accept the terms and simulate the **$180 revision fee** authorization.
-3. Switch to seller view. Select the incomplete page and submit it.
-4. R2 fails: the page introduces an annual commitment and a $99 termination fee. The charged amount stays **$0**.
-5. Select the corrected page and submit again. All requirements pass; after finality and a matching fresh capture, the simulated fee is collected once.
-6. Inspect the evidence, activity, and downloadable receipt.
+1. Open `/demo` and start the example.
+2. Review the agreement and continue to the simulated client authorization.
+3. Submit the first revision; one check identifies the unwanted annual commitment.
+4. Request a change, then submit the corrected page.
+5. Confirm all checks pass while the fee remains **authorized, not charged**.
+6. Explicitly approve the simulated payment and inspect the single receipt.
 
-The page's **$29/month product price** is separate from the **$180 revision fee**. The verifier never chooses the payment amount. Additional fixtures demonstrate ambiguity, instructions embedded in page content, and content changed after review.
+Demo and real sessions are independent. Demo records never become real charges.
+The example's **$29/month product price** is separate from its **$180 revision fee**.
 
 ## Connect real sandbox services
 
@@ -153,7 +167,7 @@ flowchart LR
 - The seller has 48 hours after authorization to submit; capture must start before 70 hours and the provider expiry. An expired uncollected authorization is voided where possible. Uncertain provider outcomes remain blocked for reconciliation.
 - Buyer acceptance is an explicit alternate basis for payment, bound to a particular evidence artifact. It does not rewrite the verifier's findings as PASS.
 - Unknown contract sends and interrupted order creation require operator investigation. Keep transaction/request IDs and use provider records; do not fabricate a receipt or reset payment state to force a retry.
-- This version has one sandbox merchant, USD $25–$500 agreements, and no platform commissions, merchant onboarding, split payments, or automated refund initiation. It is not a production escrow service.
+- Agreements are USD $25–$500 with no platform commission, split payments, or automated refund initiation. The existing owner uses a direct sandbox merchant; additional sellers use the separate platform onboarding integration once configured. This is not a production escrow service.
 
 The original [build plan](BUILD_PLAN.md), [backlog](IMPLEMENTATION_BACKLOG.md), and [research](RESEARCH_AND_FEASIBILITY.md) explain the product rationale and original delivery assumptions. The implementation uses custom CSS, Studionet, and aggregate database documents; this README describes the running architecture.
 

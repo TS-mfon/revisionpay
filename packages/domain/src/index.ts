@@ -1,6 +1,22 @@
 import { z } from "zod";
 
-export type Mode = "demo" | "sandbox";
+export type Mode = "demo" | "sandbox" | "live";
+export interface MerchantConnection {
+  tenantId: string;
+  environment: "sandbox" | "live";
+  status: "NOT_CONNECTED" | "PENDING" | "READY" | "REVOKED";
+  trackingId: string;
+  merchantId?: string;
+  legalName?: string;
+  country?: string;
+  checkedAt?: string;
+}
+export interface Tenant {
+  id: string;
+  userId: string;
+  email: string;
+  displayName: string;
+}
 export type Role = "seller" | "buyer";
 export type DemoVariant =
   | "baseline"
@@ -28,6 +44,7 @@ export const CreateAgreementSchema = z
   .object({
     title: z.string().trim().min(3).max(120),
     clientName: z.string().trim().min(2).max(80),
+    clientEmail: z.string().trim().email().max(254).optional(),
     amountMinor: z.number().int().min(2500).max(50000),
     sourceUrl: z.string().url().max(1000),
     requirements: z.array(RequirementSchema).min(3).max(5),
@@ -106,7 +123,10 @@ export const VerdictSchema = z
 export type VerificationResult = z.infer<typeof VerdictSchema>;
 
 export interface Terms {
-  schemaVersion: "1";
+  schemaVersion: "1" | "2";
+  settlementPolicy?: "BUYER_APPROVAL_REQUIRED";
+  merchantId?: string;
+  paymentIntegration?: "DIRECT" | "PLATFORM";
   agreementId: string;
   title: string;
   amountMinor: number;
@@ -132,7 +152,7 @@ export interface Consent {
   actorId: string;
   submissionId?: string;
   artifactHash?: string;
-  copyVersion: "1";
+  copyVersion: "1" | "2";
 }
 export type VerificationStatus =
   | "QUEUED"
@@ -193,6 +213,7 @@ export interface PaymentCommand {
 }
 export interface Payment {
   mode: Mode;
+  integration?: "DIRECT" | "PLATFORM";
   status: PaymentStatus;
   orderId?: string;
   authorizationId?: string;
@@ -226,6 +247,13 @@ export interface Agreement {
   mode: Mode;
   title: string;
   clientName: string;
+  clientEmail?: string;
+  sellerName?: string;
+  sellerEmail?: string;
+  termsVersion?: "2";
+  draftRevision?: number;
+  admissionMonth?: string;
+  changeRequest?: string;
   amountMinor: number;
   currency: "USD";
   sourceUrl: string;
@@ -272,7 +300,7 @@ export interface Session {
   id: string;
   tokenHash: string;
   tenantId: string;
-  kind: "demo" | "buyer" | "owner";
+  kind: "demo" | "buyer" | "owner" | "seller";
   role: Role;
   agreementId?: string;
   expiresAt: string;
@@ -280,9 +308,11 @@ export interface Session {
 export interface Actor {
   id: string;
   tenantId: string;
-  kind: "owner" | "demo" | "buyer";
+  kind: "owner" | "demo" | "buyer" | "seller";
   role: Role;
   agreementId?: string;
+  email?: string;
+  name?: string;
 }
 export interface Job {
   id: string;
@@ -475,6 +505,14 @@ export function assertCaptureEligible(
   );
   const manual = hasManualAcceptance(a);
   requireCondition(
+    !(
+      a.mode === "live" ||
+      a.terms.settlementPolicy === "BUYER_APPROVAL_REQUIRED"
+    ) || manual,
+    "CLIENT_APPROVAL_REQUIRED",
+    "The client must approve this revision before payment is collected.",
+  );
+  requireCondition(
     manual || hasFinalPass(a),
     "VERIFICATION_REQUIRED",
     "Automatic collection requires finalized, successful verification.",
@@ -575,7 +613,8 @@ export function displayStatus(a: Agreement): {
     ["VOIDED", "EXPIRED"].includes(a.payment.status)
   )
     return { label: "Canceled", tone: "gray" };
-  if (a.state === "REVIEW_HOLD") return { label: "In review", tone: "amber" };
+  if (a.state === "REVIEW_HOLD")
+    return { label: "Changes requested", tone: "amber" };
   if (
     ["UNKNOWN", "FAILED", "AUTH_DENIED"].includes(a.payment.status) ||
     a.lastError
@@ -584,6 +623,14 @@ export function displayStatus(a: Agreement): {
   if (a.payment.status === "PENDING")
     return { label: "Payment pending", tone: "blue" };
   const s = currentSubmission(a);
+  if (
+    s?.state === "READY" &&
+    a.terms?.settlementPolicy === "BUYER_APPROVAL_REQUIRED"
+  )
+    return {
+      label: a.manualAcceptanceId ? "Payment processing" : "Client review",
+      tone: "blue",
+    };
   if (s?.verification.status === "FINALIZED") {
     if (s.verification.result?.verdict === "REVISE")
       return { label: "Revision requested", tone: "amber" };
@@ -595,5 +642,42 @@ export function displayStatus(a: Agreement): {
   if (a.state === "DRAFT") return { label: "Draft", tone: "gray" };
   if (a.payment.status === "AUTHORIZED")
     return { label: "Ready for work", tone: "blue" };
-  return { label: "Awaiting buyer", tone: "amber" };
+  return { label: "Waiting for client", tone: "amber" };
+}
+
+export function nextAction(a: Agreement, role: Role = "seller") {
+  const s = currentSubmission(a);
+  if (a.payment.status === "PAID")
+    return { label: "View receipt", group: "Completed" };
+  if (
+    a.state === "CANCELED" ||
+    ["VOIDED", "EXPIRED"].includes(a.payment.status)
+  )
+    return { label: "View agreement", group: "Completed" };
+  if (MONEY_IN_FLIGHT.includes(a.payment.status))
+    return { label: "Checking payment", group: "Waiting" };
+  if (a.state === "DRAFT")
+    return { label: "Review and send", group: "Needs your action" };
+  if (a.state === "AWAITING_BUYER")
+    return {
+      label: role === "buyer" ? "Review and authorize" : "View invitation",
+      group: role === "buyer" ? "Needs your action" : "Waiting",
+    };
+  if (a.state === "REVIEW_HOLD")
+    return {
+      label:
+        role === "seller" ? "Read requested changes" : "Waiting for changes",
+      group: role === "seller" ? "Needs your action" : "Waiting",
+    };
+  if (s?.state === "READY")
+    return {
+      label: role === "buyer" ? "Review the work" : "Waiting for client review",
+      group: role === "buyer" ? "Needs your action" : "Waiting",
+    };
+  if (s && s.state !== "FAILED")
+    return { label: "Checking the page", group: "Waiting" };
+  return {
+    label: role === "seller" ? "Submit updated page" : "Waiting for the work",
+    group: role === "seller" ? "Needs your action" : "Waiting",
+  };
 }

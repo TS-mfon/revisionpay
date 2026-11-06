@@ -44,3 +44,20 @@ it("disables the localhost exception on Vercel", () => {
     validateCaptureUrl("http://localhost:3000/", ["localhost"], true),
   ).toThrow();
 });
+it("allows unlisted public HTTPS host names for the self-service collector", () => {
+  expect(
+    validateCaptureUrl("https://client.example/pricing", []).hostname,
+  ).toBe("client.example");
+  expect(() =>
+    validateCaptureUrl("https://169.254.169.254/latest", []),
+  ).toThrow();
+  expect(() =>
+    validateCaptureUrl("https://client.example:8443/", []),
+  ).toThrow();
+});
+it("disables the localhost exception on Netlify", () => {
+  vi.stubEnv("NETLIFY", "true");
+  expect(() =>
+    validateCaptureUrl("http://localhost:3000/", [], true),
+  ).toThrow();
+});

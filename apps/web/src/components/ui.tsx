@@ -1,18 +1,15 @@
 "use client";
 import Link from "next/link";
-import { usePathname, useRouter } from "next/navigation";
+import { usePathname } from "next/navigation";
 import { useEffect, useState, type ReactNode } from "react";
 import {
   ArrowUpRight,
   Check,
   CircleHelp,
-  Command,
-  FileCheck2,
-  LayoutGrid,
+  Copy,
   LoaderCircle,
   LogOut,
-  Plus,
-  ShieldCheck,
+  Settings,
 } from "lucide-react";
 import type { Actor, Agreement } from "@revisionpay/domain";
 import { displayStatus } from "@revisionpay/domain";
@@ -20,15 +17,26 @@ import { displayStatus } from "@revisionpay/domain";
 export async function api<T = any>(path: string, data?: unknown): Promise<T> {
   const response = await fetch("/api/" + path, {
     method: data === undefined ? "GET" : "POST",
-    headers: data === undefined ? {} : { "Content-Type": "application/json" },
+    headers: {
+      ...(data === undefined ? {} : { "Content-Type": "application/json" }),
+      ...(typeof location !== "undefined" &&
+      location.pathname.startsWith("/demo") &&
+      !location.pathname.startsWith("/demo-site")
+        ? { "X-RevisionPay-Space": "demo" }
+        : {}),
+    },
     ...(data === undefined ? {} : { body: JSON.stringify(data) }),
     cache: "no-store",
   });
   const body = await response.json();
   if (!response.ok)
-    throw new Error(body.message || "The request could not be completed.");
+    throw new Error(
+      body.message || "We couldn't complete that action. Please try again.",
+    );
   return body;
 }
+export const agreementHref = (a: Pick<Agreement, "mode" | "id">) =>
+  (a.mode === "demo" ? "/demo" : "") + "/agreements/" + a.id;
 export function Logo({ light = false }: { light?: boolean }) {
   return (
     <Link
@@ -53,9 +61,10 @@ export function Button({
     <button
       className={"button " + className}
       {...props}
+      aria-busy={busy || undefined}
       disabled={props.disabled || busy}
     >
-      {busy && <LoaderCircle size={16} className="spin" />}
+      {busy && <LoaderCircle size={18} className="spin" />}
       {children}
     </button>
   );
@@ -75,13 +84,13 @@ export function Badge({
   );
 }
 export function Status({ agreement }: { agreement: Agreement }) {
-  const status = displayStatus(agreement);
-  return <Badge tone={status.tone}>{status.label}</Badge>;
+  const s = displayStatus(agreement);
+  return <Badge tone={s.tone}>{s.label}</Badge>;
 }
 export function ErrorBox({ message }: { message?: string }) {
   return message ? (
     <div role="alert" className="notice error">
-      <CircleHelp size={18} />
+      <CircleHelp size={20} />
       <span>{message}</span>
     </div>
   ) : null;
@@ -92,30 +101,37 @@ export function Loading({
   message?: string;
 }) {
   return (
-    <div className="loading">
+    <div className="loading" role="status">
       <LoaderCircle size={22} className="spin" />
       <p>{message}</p>
     </div>
   );
 }
 export function ShortHash({ value, label }: { value?: string; label: string }) {
+  const [copied, setCopied] = useState(false);
   return (
     <div className="hash-row">
       <span>{label}</span>
       <code title={value}>
         {value
-          ? value.length > 28
-            ? value.slice(0, 16) + "…" + value.slice(-8)
-            : value
-          : "Not available yet"}
+          ? value.slice(0, 16) +
+            (value.length > 20 ? "…" + value.slice(-8) : "")
+          : "Not available"}
       </code>
       {value && (
         <button
           className="icon-button"
-          onClick={() => navigator.clipboard.writeText(value)}
           aria-label={"Copy " + label}
+          onClick={async () => {
+            try {
+              await navigator.clipboard.writeText(value);
+              setCopied(true);
+            } catch {
+              setCopied(false);
+            }
+          }}
         >
-          <Command size={13} />
+          {copied ? <Check size={16} /> : <Copy size={16} />}
         </button>
       )}
     </div>
@@ -123,18 +139,30 @@ export function ShortHash({ value, label }: { value?: string; label: string }) {
 }
 export function formatDate(value?: string) {
   return value
-    ? new Date(value).toLocaleString("en-US", {
+    ? new Date(value).toLocaleString(undefined, {
         month: "short",
         day: "numeric",
         hour: "numeric",
         minute: "2-digit",
+        timeZoneName: "short",
       })
     : "—";
+}
+export function ModeSwitch({ demo = false }: { demo?: boolean }) {
+  return (
+    <nav className="mode-switch" aria-label="Workspace mode">
+      <Link href="/workspace" aria-current={!demo ? "page" : undefined}>
+        Real workspace
+      </Link>
+      <Link href="/demo" aria-current={demo ? "page" : undefined}>
+        Demo
+      </Link>
+    </nav>
+  );
 }
 export function Shell({
   children,
   who,
-  onRole,
   title = "Workspace",
 }: {
   children: ReactNode;
@@ -142,155 +170,82 @@ export function Shell({
   onRole?: () => void;
   title?: string;
 }) {
-  const path = usePathname();
-  const router = useRouter();
-  const [busy, setBusy] = useState(false);
+  const path = usePathname(),
+    demo = path.startsWith("/demo"),
+    buyer = who?.role === "buyer";
   const [error, setError] = useState("");
-  async function switchRole() {
-    setBusy(true);
-    setError("");
-    try {
-      await api("demo/role", {
-        role: who?.role === "seller" ? "buyer" : "seller",
-      });
-      onRole ? onRole() : window.location.reload();
-    } catch (e) {
-      setError((e as Error).message);
-    } finally {
-      setBusy(false);
-    }
-  }
   return (
-    <div className="app-shell">
+    <div className={"product-shell " + (buyer ? "client-shell" : "")}>
       <a className="skip-link" href="#content">
         Skip to content
       </a>
-      <aside className="sidebar">
-        <Logo light />
-        <div className="workspace-name">
-          <span className="workspace-avatar">
-            {who?.kind === "demo" ? "D" : "R"}
-          </span>
-          <div>
-            <strong>
-              {who?.kind === "demo" ? "Demo studio" : "Your studio"}
-            </strong>
-            <small>Website revision workspace</small>
-          </div>
-        </div>
-        <span className="nav-label">WORKSPACE</span>
-        <nav>
-          <Link
-            className={
-              path === "/workspace" || path.startsWith("/agreements")
-                ? "active"
-                : ""
-            }
-            href="/workspace"
-          >
-            <LayoutGrid size={18} />
-            Agreements
-          </Link>
-          {who?.role !== "buyer" && (
-            <Link href="/agreements/new">
-              <Plus size={18} />
-              New agreement
+      <header className="product-header">
+        <Logo />
+        <ModeSwitch demo={demo} />
+        <div className="header-links">
+          {who && !demo && !buyer && (
+            <Link href="/settings" aria-label="Account and payments">
+              <Settings size={20} />
+              <span>Account</span>
             </Link>
           )}
-          {who?.kind === "owner" && (
-            <Link className={path === "/ops" ? "active" : ""} href="/ops">
-              <ShieldCheck size={18} />
-              Service status
-            </Link>
-          )}
-          <a href="/#how-it-works">
-            <CircleHelp size={18} />
-            How it works
-            <ArrowUpRight size={13} />
-          </a>
-        </nav>
-        <div className="sidebar-bottom">
-          <div className="sidebar-note">
-            <FileCheck2 size={21} />
-            <strong>Good work. Clear terms.</strong>
-            <p>One shared definition of done, from agreement to payment.</p>
-          </div>
-          <div className="profile">
-            <span className="profile-avatar">
-              {who?.role === "buyer" ? "B" : "S"}
-            </span>
-            <div>
-              <strong>
-                {who?.role === "buyer" ? "Buyer view" : "Seller view"}
-              </strong>
-              <small>
-                {who?.kind === "demo"
-                  ? "Private demo session"
-                  : "Secure workspace"}
-              </small>
-            </div>
-            {who && (
-              <button
-                className="icon-button"
-                aria-label="Sign out"
-                onClick={async () => {
+          {who && (
+            <button
+              className="icon-button"
+              aria-label="Sign out"
+              onClick={async () => {
+                try {
                   await api("logout", {});
-                  router.push("/");
-                }}
-              >
-                <LogOut size={16} />
-              </button>
-            )}
-          </div>
-        </div>
-      </aside>
-      <div className="app-main">
-        <header className="topbar">
-          <div className="crumb">
-            Your studio <span>/</span> <strong>{title}</strong>
-          </div>
-          <div className="topbar-right">
-            <Badge tone={who?.kind === "demo" ? "amber" : "blue"}>
-              {who?.kind === "demo" ? "Demo simulation" : "Sandbox workspace"}
-            </Badge>
-            {who?.kind === "demo" && (
-              <Button
-                className="small secondary"
-                onClick={switchRole}
-                busy={busy}
-              >
-                Switch to {who.role === "seller" ? "buyer" : "seller"}
-              </Button>
-            )}
-          </div>
-        </header>
-        <main id="content" className="content">
-          {who?.kind === "demo" && (
-            <div className="demo-banner">
-              <span className="demo-icon">D</span>
-              <p>
-                <strong>You’re in a private demo.</strong> Payments and
-                verification are simulated. Try both roles to follow a revision
-                from start to finish.
-              </p>
-            </div>
+                  location.assign("/");
+                } catch (e) {
+                  setError((e as Error).message);
+                }
+              }}
+            >
+              <LogOut size={20} />
+            </button>
           )}
-          <ErrorBox message={error} />
-          {children}
-        </main>
-        <footer className="app-footer">
-          <span>RevisionPay · Built for work that’s ready.</span>
-          <span>
-            PayPal sandbox <i>×</i> GenLayer Studionet
-          </span>
-        </footer>
-      </div>
+          {!who && (
+            <Link href="/login">
+              Sign in <ArrowUpRight size={16} />
+            </Link>
+          )}
+        </div>
+      </header>
+      {!buyer && (
+        <nav className="product-nav" aria-label="Main navigation">
+          <Link
+            href={demo ? "/demo" : "/workspace"}
+            aria-current={title === "Workspace" ? "page" : undefined}
+          >
+            {demo ? "Guided example" : "Your agreements"}
+          </Link>
+          <a href="/#how-it-works">How it works</a>
+        </nav>
+      )}
+      <main id="content" className="product-content">
+        {demo && (
+          <div className="demo-banner">
+            <Badge tone="amber">Demo</Badge>
+            <p>This example simulates payments and checks. No money moves.</p>
+            <Link href="/workspace">Use real workspace →</Link>
+          </div>
+        )}
+        <ErrorBox message={error} />
+        {children}
+      </main>
+      <footer className="product-footer">
+        <span>RevisionPay · Website changes, clearly agreed.</span>
+        <span>
+          Questions? <Link href="/help">Get help</Link>
+        </span>
+      </footer>
     </div>
   );
 }
 export function useMe() {
-  const [who, setWho] = useState<Actor | null>();
-  const [error, setError] = useState("");
+  const [who, setWho] = useState<Actor | null>(),
+    [error, setError] = useState("");
   const reload = () =>
     api("me")
       .then((d) => setWho(d.actor))

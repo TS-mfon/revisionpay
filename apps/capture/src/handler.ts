@@ -52,7 +52,10 @@ export default async function handler(
         .map((s) => s.trim())
         .filter(Boolean),
       allowLocal:
-        process.env.CAPTURE_ALLOW_LOCALHOST === "true" && !process.env.VERCEL,
+        process.env.CAPTURE_ALLOW_LOCALHOST === "true" &&
+        !process.env.VERCEL &&
+        !process.env.NETLIFY,
+      publicResources: true,
     });
     res.setHeader("X-RP-Signature", sign(canonical(result), secret));
     return send(200, result);

@@ -1,245 +1,358 @@
 "use client";
 import Link from "next/link";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import {
-  ArrowLeft,
-  ArrowRight,
-  Check,
-  Globe2,
-  LockKeyhole,
-} from "lucide-react";
-import { DEFAULT_REQUIREMENTS } from "@revisionpay/domain/fixtures";
-import { api, Shell, useMe, Button, ErrorBox } from "@/components/ui";
+import { ArrowLeft, ArrowRight, Plus, X, LockKeyhole } from "lucide-react";
+import { api, Shell, useMe, Button, ErrorBox, Loading } from "@/components/ui";
+interface Form {
+  title: string;
+  clientName: string;
+  clientEmail: string;
+  sourceUrl: string;
+  amount: string;
+  requirements: string[];
+}
+const empty: Form = {
+  title: "",
+  clientName: "",
+  clientEmail: "",
+  sourceUrl: "",
+  amount: "",
+  requirements: ["", "", ""],
+};
 export default function Builder() {
-  const { who, error: authError } = useMe();
-  const [error, setError] = useState("");
-  const [busy, setBusy] = useState(false);
-  const [template, setTemplate] = useState(true);
-  const [requirements, setRequirements] = useState(DEFAULT_REQUIREMENTS);
-  const router = useRouter();
-  async function submit(e: React.FormEvent<HTMLFormElement>) {
+  const { who, error: authError } = useMe(),
+    router = useRouter();
+  const [form, setForm] = useState<Form>(empty),
+    [error, setError] = useState(""),
+    [saved, setSaved] = useState("Your draft is private"),
+    [busy, setBusy] = useState(false),
+    [loaded, setLoaded] = useState(false);
+  const current = useRef(form),
+    id = useRef(""),
+    version = useRef(0),
+    lastSaved = useRef(""),
+    inFlight = useRef<Promise<string> | null>(null);
+  current.current = form;
+  useEffect(() => {
+    if (!who) return;
+    let active = true;
+    const q = new URLSearchParams(location.search),
+      existing = q.get("draft") || q.get("copy");
+    async function load() {
+      try {
+        if (existing) {
+          const d = await api("agreements/" + existing),
+            a = d.agreement;
+          if (q.has("draft") && a.state !== "DRAFT")
+            throw new Error(
+              "This agreement was already sent and cannot be edited.",
+            );
+          if (q.has("draft")) {
+            id.current = a.id;
+            version.current = a.draftRevision || 0;
+          }
+          const f = {
+            title: a.title,
+            clientName: a.clientName,
+            clientEmail: a.clientEmail || "",
+            sourceUrl: a.sourceUrl,
+            amount: String(a.amountMinor / 100),
+            requirements: a.requirements.map((r: any) => r.description),
+          };
+          if (active) setForm(f);
+          if (q.has("draft")) lastSaved.current = JSON.stringify(f);
+        } else {
+          const cached = sessionStorage.getItem("revision-draft:" + who!.id);
+          if (cached && active) setForm({ ...empty, ...JSON.parse(cached) });
+        }
+      } catch (e) {
+        if (active) setError((e as Error).message);
+      } finally {
+        if (active) setLoaded(true);
+      }
+    }
+    void load();
+    return () => {
+      active = false;
+    };
+  }, [who]);
+  function input(f: Form) {
+    return {
+      title: f.title.trim() || new URL(f.sourceUrl).hostname + " page revision",
+      clientName: f.clientName,
+      clientEmail: f.clientEmail,
+      sourceUrl: f.sourceUrl,
+      amountMinor: Math.round(Number(f.amount) * 100),
+      requirements: f.requirements.map((description, i) => ({
+        id: "R" + (i + 1),
+        title: description.slice(0, 70),
+        description,
+      })),
+    };
+  }
+  function valid(f: Form) {
+    try {
+      return (
+        /^https:\/\//.test(f.sourceUrl) &&
+        Boolean(new URL(f.sourceUrl).hostname) &&
+        f.clientName.trim().length >= 2 &&
+        /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(f.clientEmail) &&
+        Number(f.amount) >= 25 &&
+        Number(f.amount) <= 500 &&
+        f.requirements.every((r) => r.trim().length >= 15)
+      );
+    } catch {
+      return false;
+    }
+  }
+  async function persist(): Promise<string> {
+    if (inFlight.current) {
+      await inFlight.current;
+      if (JSON.stringify(current.current) === lastSaved.current)
+        return id.current;
+    }
+    const snapshot = current.current,
+      serialized = JSON.stringify(snapshot);
+    if (serialized === lastSaved.current && id.current) return id.current;
+    setSaved("Saving…");
+    const promise = (async () => {
+      const d = await api(
+        id.current ? "agreements/" + id.current + "/draft" : "agreements",
+        { input: input(snapshot), draftRevision: version.current },
+      );
+      id.current = d.agreement.id;
+      history.replaceState(null, "", "/agreements/new?draft=" + id.current);
+      version.current = d.agreement.draftRevision || 0;
+      lastSaved.current = serialized;
+      setSaved("Saved to your workspace");
+      return id.current;
+    })();
+    inFlight.current = promise;
+    try {
+      return await promise;
+    } finally {
+      if (inFlight.current === promise) inFlight.current = null;
+    }
+  }
+  useEffect(() => {
+    if (!loaded || !who) return;
+    try {
+      sessionStorage.setItem("revision-draft:" + who.id, JSON.stringify(form));
+    } catch {
+      /* Storage may be unavailable. Cloud saving still works. */
+    }
+    if (!valid(form)) {
+      setSaved("Draft kept in this tab");
+      return;
+    }
+    const timer = setTimeout(() => {
+      void persist().catch((e) => {
+        setSaved("Not saved yet");
+        setError(e.message);
+      });
+    }, 1200);
+    return () => clearTimeout(timer);
+  }, [form, loaded, who]);
+  const update = (field: keyof Form, value: string | string[]) =>
+    setForm((f) => ({ ...f, [field]: value }));
+  async function review(e: React.FormEvent) {
     e.preventDefault();
+    if (!valid(form)) {
+      setError(
+        "Add a public HTTPS page, client details, a $25–$500 fee and at least 15 characters for each change.",
+      );
+      return;
+    }
     setBusy(true);
     setError("");
-    const data = new FormData(e.currentTarget);
     try {
-      const result = await api("agreements", {
-        template: template || who?.kind === "demo",
-        input: {
-          title: data.get("title"),
-          clientName: data.get("clientName"),
-          sourceUrl: data.get("sourceUrl"),
-          amountMinor: Math.round(Number(data.get("amount")) * 100),
-          requirements,
-        },
-      });
-      router.push("/agreements/" + result.agreement.id);
+      const savedId = await persist();
+      sessionStorage.removeItem("revision-draft:" + who?.id);
+      router.push("/agreements/" + savedId);
     } catch (e) {
       setError((e as Error).message);
       setBusy(false);
     }
   }
   return (
-    <Shell who={who} title="New agreement">
-      <Link href="/workspace" className="back-link">
-        <ArrowLeft size={15} />
-        All agreements
+    <Shell who={who} title="New revision">
+      <Link className="back-link" href="/workspace">
+        <ArrowLeft size={17} />
+        Your agreements
       </Link>
       <div className="page-heading">
         <div>
-          <p className="eyebrow">SET THE WORK UP FOR SUCCESS</p>
-          <h1>
-            A clear agreement.
-            <br />A better starting point.
-          </h1>
-          <p>Define what needs to change and what needs to stay the same.</p>
+          <p className="eyebrow">NEW REVISION</p>
+          <h1>What needs to change?</h1>
+          <p>Give your client a clear checklist and one fixed fee.</p>
         </div>
+        <span className="save-state" role="status">
+          <LockKeyhole size={15} />
+          {saved}
+        </span>
       </div>
       <ErrorBox message={error || authError} />
-      <form onSubmit={submit} className="builder-grid">
-        <div>
-          <section className="panel form-panel">
-            <div className="panel-title">
-              <span className="step-number">01</span>
-              <div>
-                <h2>The revision</h2>
-                <p>One public page and one fixed revision fee.</p>
-              </div>
-            </div>
-            <div className="template-card">
-              <Globe2 size={22} />
-              <div>
-                <strong>Use the Northstar example</strong>
-                <p>
-                  A ready-to-revise page with trial, pricing, and CTA
-                  requirements.
-                </p>
-              </div>
-              <input
-                aria-label="Use Northstar example"
-                type="checkbox"
-                checked={template || who?.kind === "demo"}
-                disabled={who?.kind === "demo"}
-                onChange={(e) => setTemplate(e.target.checked)}
-              />
-            </div>
-            {!template && who?.kind !== "demo" && (
-              <div className="form-fields">
-                <label>
-                  Agreement title
-                  <input
-                    required
-                    name="title"
-                    minLength={3}
-                    maxLength={120}
-                    placeholder="Pricing page copy revision"
-                  />
-                </label>
-                <div className="two-fields">
-                  <label>
-                    Client or business
-                    <input
-                      required
-                      name="clientName"
-                      minLength={2}
-                      maxLength={80}
-                      placeholder="Your client"
-                    />
-                  </label>
-                  <label>
-                    Revision fee · USD
-                    <input
-                      required
-                      name="amount"
-                      type="number"
-                      min="25"
-                      max="500"
-                      step="0.01"
-                      placeholder="180.00"
-                    />
-                  </label>
-                </div>
-                <label>
-                  Public page URL
-                  <input
-                    name="sourceUrl"
-                    type="url"
-                    required
-                    placeholder="https://your-approved-website.com/pricing"
-                  />
-                  <small>
-                    The capture service must allow this website host.
-                  </small>
-                </label>
-              </div>
-            )}
-          </section>
-          <section className="panel form-panel">
-            <div className="panel-title">
-              <span className="step-number">02</span>
-              <div>
-                <h2>What does done look like?</h2>
-                <p>Use specific conditions the evidence can support.</p>
-              </div>
-            </div>
-            <div className="builder-requirements">
-              {requirements.map((r, i) => (
-                <div key={r.id}>
-                  <span className="requirement-id">{r.id}</span>
-                  <div>
-                    {template || who?.kind === "demo" ? (
-                      <>
-                        <strong>{r.title}</strong>
-                        <p>{r.description}</p>
-                      </>
-                    ) : (
-                      <>
-                        <label className="sr-only" htmlFor={r.id + "-title"}>
-                          Requirement {i + 1} title
-                        </label>
-                        <input
-                          id={r.id + "-title"}
-                          required
-                          minLength={3}
-                          maxLength={100}
-                          value={r.title}
-                          onChange={(e) =>
-                            setRequirements(
-                              requirements.map((v, index) =>
-                                index === i
-                                  ? { ...v, title: e.target.value }
-                                  : v,
-                              ),
-                            )
-                          }
-                        />
-                        <label className="sr-only" htmlFor={r.id}>
-                          Requirement {i + 1} detail
-                        </label>
-                        <textarea
-                          id={r.id}
-                          required
-                          minLength={15}
-                          maxLength={800}
-                          value={r.description}
-                          onChange={(e) =>
-                            setRequirements(
-                              requirements.map((v, index) =>
-                                index === i
-                                  ? { ...v, description: e.target.value }
-                                  : v,
-                              ),
-                            )
-                          }
-                        />
-                      </>
-                    )}
-                  </div>
-                </div>
-              ))}
-            </div>
-          </section>
-          <Button
-            type="submit"
-            busy={busy}
-            disabled={!who || who.role !== "seller"}
-          >
-            Create & capture original page <ArrowRight size={16} />
-          </Button>
+      {who === null ? (
+        <div className="welcome-panel">
+          <h2>Sign in to save your revision.</h2>
+          <Link className="button" href="/login">
+            Continue with Google
+          </Link>
         </div>
-        <aside className="builder-aside panel">
-          <LockKeyhole size={24} />
-          <h3>Clear terms for both sides.</h3>
-          <p>
-            The buyer reviews and accepts the captured page, requirements, and
-            fee before authorizing payment.
-          </p>
-          <ul>
-            {[
-              "3 revision submissions",
-              "48 hours to submit the work",
-              "Collection starts within 70 hours",
-              "One fixed USD payment",
-              "Buyer review before collection",
-            ].map((text) => (
-              <li key={text}>
-                <Check size={15} />
-                {text}
-              </li>
-            ))}
-          </ul>
-          <div className="notice neutral">
+      ) : !loaded ? (
+        <Loading />
+      ) : (
+        <form onSubmit={review} className="revision-form">
+          <section className="form-section">
+            <h2>1. The page and the fee</h2>
+            <label>
+              Public page URL
+              <input
+                name="sourceUrl"
+                type="url"
+                required
+                placeholder="https://yourclient.com/pricing"
+                value={form.sourceUrl}
+                onChange={(e) => update("sourceUrl", e.target.value)}
+              />
+              <span className="field-help">
+                We check visible copy and link destinations on this one page.
+              </span>
+            </label>
+            <div className="two-fields">
+              <label>
+                Client or business name
+                <input
+                  name="clientName"
+                  required
+                  autoComplete="organization"
+                  minLength={2}
+                  maxLength={80}
+                  value={form.clientName}
+                  onChange={(e) => update("clientName", e.target.value)}
+                />
+              </label>
+              <label>
+                Client email
+                <input
+                  name="clientEmail"
+                  type="email"
+                  required
+                  autoComplete="email"
+                  value={form.clientEmail}
+                  onChange={(e) => update("clientEmail", e.target.value)}
+                />
+              </label>
+            </div>
+            <label className="fee-field">
+              Revision fee · USD
+              <input
+                name="amount"
+                type="number"
+                inputMode="decimal"
+                min="25"
+                max="500"
+                step="0.01"
+                required
+                placeholder="180.00"
+                value={form.amount}
+                onChange={(e) => update("amount", e.target.value)}
+              />
+              <span className="field-help">
+                $25–$500. This is the total your client authorizes. PayPal fees
+                apply to your receipt.
+              </span>
+            </label>
+          </section>
+          <section className="form-section">
+            <h2>2. The agreed changes</h2>
             <p>
-              Only public, shareable page content is supported. Evidence and
-              decisions may remain visible on Studionet.
+              Write what your client should be able to see when you’re done. Be
+              specific about wording, prices and links.
             </p>
+            {form.requirements.map((text, i) => (
+              <div className="requirement-input" key={i}>
+                <label>
+                  Change {i + 1}
+                  <textarea
+                    required
+                    minLength={15}
+                    maxLength={800}
+                    rows={2}
+                    placeholder={
+                      [
+                        "Explain that the 14-day trial does not require a credit card.",
+                        "Keep the existing monthly price and cancel-anytime promise.",
+                        "Point the main signup button to the trial registration page.",
+                      ][i] || "Describe another specific change."
+                    }
+                    value={text}
+                    onChange={(e) =>
+                      update(
+                        "requirements",
+                        form.requirements.map((r, j) =>
+                          j === i ? e.target.value : r,
+                        ),
+                      )
+                    }
+                  />
+                </label>
+                {form.requirements.length > 3 && (
+                  <button
+                    type="button"
+                    className="icon-button"
+                    aria-label={"Remove change " + (i + 1)}
+                    onClick={() =>
+                      update(
+                        "requirements",
+                        form.requirements.filter((_, j) => j !== i),
+                      )
+                    }
+                  >
+                    <X size={18} />
+                  </button>
+                )}
+              </div>
+            ))}
+            {form.requirements.length < 5 && (
+              <Button
+                type="button"
+                className="secondary"
+                onClick={() =>
+                  update("requirements", [...form.requirements, ""])
+                }
+              >
+                <Plus size={18} />
+                Add a change
+              </Button>
+            )}
+            <details className="optional-title">
+              <summary>
+                Give this revision a name{" "}
+                <span className="optional">Optional</span>
+              </summary>
+              <label>
+                Agreement title
+                <input
+                  value={form.title}
+                  maxLength={120}
+                  onChange={(e) => update("title", e.target.value)}
+                />
+              </label>
+            </details>
+          </section>
+          <div className="form-submit">
+            <div>
+              <strong>You’ll review everything before sending.</strong>
+              <p>Nothing is sent or charged yet.</p>
+            </div>
+            <Button type="submit" busy={busy}>
+              Review agreement <ArrowRight size={18} />
+            </Button>
           </div>
-          <small>
-            Authorization reserves permission to collect. It is not escrow.
-          </small>
-        </aside>
-      </form>
+        </form>
+      )}
     </Shell>
   );
 }

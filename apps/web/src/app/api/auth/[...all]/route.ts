@@ -6,8 +6,7 @@ async function handler(request: Request) {
   } catch {
     return Response.json(
       {
-        message:
-          "GitHub app sign-in is not configured. Use the owner CLI sign-in link.",
+        message: "Sign-in is not available yet. Please try again later.",
       },
       { status: 503 },
     );

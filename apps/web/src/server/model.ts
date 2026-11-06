@@ -54,7 +54,14 @@ export function audit(
 export function freeze(a: Agreement) {
   if (!a.baseline?.complete) throw new Error("A complete baseline is required");
   a.terms = {
-    schemaVersion: "1",
+    schemaVersion: a.termsVersion || "1",
+    ...(a.termsVersion === "2"
+      ? {
+          settlementPolicy: "BUYER_APPROVAL_REQUIRED" as const,
+          merchantId: a.payment.merchantId,
+          paymentIntegration: a.payment.integration,
+        }
+      : {}),
     agreementId: a.id,
     title: a.title,
     amountMinor: a.amountMinor,

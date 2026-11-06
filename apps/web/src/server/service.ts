@@ -16,6 +16,8 @@ import { draft, freeze, audit } from "./model";
 import { mutate, type Store } from "./store";
 import { command, applyAuthorization } from "./workflow";
 import { paypal, demoGateway } from "./paypal";
+import { merchantStatus } from "./merchants";
+import { queueMail, notifyAgreement } from "./mail";
 
 export async function allowed(
   store: Store,
@@ -33,7 +35,8 @@ export async function allowed(
   requireCondition(
     a &&
       who.tenantId === a.tenantId &&
-      (who.kind !== "buyer" || who.agreementId === a.id),
+      (who.kind !== "buyer" || who.agreementId === a.id) &&
+      (who.kind === "demo" ? a.mode === "demo" : a.mode !== "demo"),
     "NOT_FOUND",
     "Agreement not found.",
     404,
@@ -94,34 +97,39 @@ export async function create(
       : input,
   );
   if (!demo) {
-    const r = readiness();
-    requireCondition(
-      r.paypal && r.genlayer && r.capture,
-      "SERVICES_NOT_READY",
-      "Connect PayPal sandbox, Studionet, and the capture service before creating a sandbox agreement.",
-      503,
-    );
     const url = new URL(data.sourceUrl);
-    const hosts = new Set(
-      (
-        process.env.CAPTURE_ALLOWED_HOSTS ||
-        new URL(configuration().appUrl).hostname
-      )
-        .split(",")
-        .map((v) => v.trim()),
-    );
     requireCondition(
       url.protocol === "https:" &&
-        hosts.has(url.hostname) &&
         !url.username &&
         !url.password &&
         !url.hash &&
         !url.port,
       "SOURCE_NOT_ALLOWED",
-      "Use an HTTPS page on an approved website host.",
+      "Enter a public HTTPS page without a password, port or fragment.",
     );
+    if (who.kind === "seller")
+      requireCondition(
+        data.clientEmail,
+        "EMAIL_REQUIRED",
+        "Enter the client email for invitations and secure access.",
+      );
   }
-  const a = draft(data, who.tenantId, demo ? "demo" : "sandbox", id);
+  const a = draft(
+    data,
+    who.tenantId,
+    demo
+      ? "demo"
+      : configuration().mode === "live" ||
+          (who.kind === "seller" && configuration().mode !== "sandbox")
+        ? "live"
+        : "sandbox",
+    id,
+  );
+  a.termsVersion = "2";
+  a.draftRevision = 0;
+  a.sellerName = who.name || (demo ? "Alex Morgan" : "Your freelancer");
+  a.sellerEmail = who.email;
+
   audit(
     a,
     "AGREEMENT_CREATED",
@@ -132,27 +140,178 @@ export async function create(
   await store.ensureJob(id);
   return a;
 }
-export async function freezeAgreement(store: Store, who: Actor, id: string) {
+export async function freezeAgreement(
+  store: Store,
+  who: Actor,
+  id: string,
+  expectedRevision?: number,
+) {
+  const before = await allowed(store, who, id, "seller");
+  requireCondition(
+    before.state === "DRAFT",
+    "ALREADY_SENT",
+    "This agreement has already been sent.",
+  );
+  requireCondition(
+    before.baselineStatus === "READY" && before.baseline?.complete,
+    "BASELINE_REQUIRED",
+    "Wait for the complete page check before sending.",
+  );
+  requireCondition(
+    before.termsVersion !== "2" ||
+      expectedRevision === (before.draftRevision || 0),
+    "DRAFT_CHANGED",
+    "The draft changed. Reload and review the latest version before sending.",
+  );
+  let merchantId: string | undefined;
+  let integration: "DIRECT" | "PLATFORM" | undefined;
+  if (before.mode !== "demo") {
+    const connection = await merchantStatus(store, who);
+    requireCondition(
+      connection.status === "READY" && connection.environment === before.mode,
+      "CONNECT_PAYPAL",
+      "Connect your PayPal account before sending this agreement.",
+    );
+    requireCondition(
+      before.mode !== "live" || readiness().livePayments,
+      "LIVE_UNAVAILABLE",
+      "Live payments are not available yet. Your draft is saved.",
+      503,
+    );
+    merchantId = connection.merchantId;
+    integration =
+      connection.trackingId === "legacy-owner" ? "DIRECT" : "PLATFORM";
+  }
+  const raw = token(),
+    lease = randomUUID();
+  const admission = before.mode === "live";
+  if (admission)
+    requireCondition(
+      await store.leaseSlot("live-admission", lease, 15000),
+      "CAPACITY_BUSY",
+      "Another agreement is being prepared. Try again in a moment.",
+    );
+  try {
+    if (admission) {
+      const all = (await store.listAgreements()).filter(
+        (a) =>
+          a.mode === "live" &&
+          a.state !== "DRAFT" &&
+          !["CLOSED", "CANCELED"].includes(a.state),
+      );
+      requireCondition(
+        all.length < 5 &&
+          all.filter((a) => a.tenantId === who.tenantId).length < 2,
+        "BETA_CAPACITY",
+        "The beta is at capacity. Your draft is saved; existing agreements can finish.",
+      );
+      requireCondition(
+        await store.consumeQuota(
+          "live-admission:" + new Date().toISOString().slice(0, 7),
+          10,
+        ),
+        "BETA_MONTHLY_LIMIT",
+        "This month's beta capacity is full. Your draft is saved.",
+      );
+    }
+    const a = await mutate(store, id, (x) => {
+      requireCondition(
+        x.state === "DRAFT" &&
+          x.baselineStatus === "READY" &&
+          x.baseline?.sourceUrl === x.sourceUrl,
+        "BASELINE_REQUIRED",
+        "Wait for the page check to finish before sending.",
+      );
+      requireCondition(
+        (x.draftRevision || 0) === (before.draftRevision || 0),
+        "DRAFT_CHANGED",
+        "Review the latest draft before sending.",
+      );
+      if (x.termsVersion === "2") {
+        x.payment.merchantId = merchantId;
+        x.payment.integration = integration;
+      }
+      freeze(x);
+      x.invitation = {
+        tokenHash: sha256(raw),
+        expiresAt: new Date(Date.now() + 7 * 86400000).toISOString(),
+      };
+      if (admission) x.admissionMonth = new Date().toISOString().slice(0, 7);
+    });
+    const invitationUrl = configuration().appUrl + "/invite#" + raw;
+    const email = await invitationMail(store, a, invitationUrl);
+    return { a, invitationUrl, email };
+  } finally {
+    if (admission) await store.releaseSlot("live-admission", lease);
+  }
+}
+async function invitationMail(
+  store: Store,
+  a: Agreement,
+  invitationUrl: string,
+) {
+  if (!a.clientEmail || a.mode === "demo") return "LINK_READY";
+  if (!readiness().emailAuth) return "UNAVAILABLE";
+  try {
+    await queueMail(store, "invite:" + a.id + ":" + a.invitation?.tokenHash, {
+      to: a.clientEmail,
+      subject:
+        (a.sellerName || "Your freelancer") + " sent a revision agreement",
+      text:
+        "Review the website changes and fixed fee before authorizing payment. You approve the finished work before payment is collected.\n\n" +
+        invitationUrl,
+    });
+    return "QUEUED";
+  } catch {
+    return "UNAVAILABLE";
+  }
+}
+export async function updateDraft(
+  store: Store,
+  who: Actor,
+  id: string,
+  input: unknown,
+  version: number,
+) {
   await allowed(store, who, id, "seller");
-  const raw = token();
+  const data = CreateAgreementSchema.parse(input);
+  const url = new URL(data.sourceUrl);
+  requireCondition(
+    url.protocol === "https:" &&
+      !url.username &&
+      !url.password &&
+      !url.hash &&
+      !url.port,
+    "SOURCE_NOT_ALLOWED",
+    "Enter a public HTTPS page.",
+  );
   const a = await mutate(store, id, (x) => {
     requireCondition(
-      x.state === "DRAFT" && x.baselineStatus === "READY",
-      "BASELINE_REQUIRED",
-      "Wait for a complete original-page capture before freezing the agreement.",
+      x.state === "DRAFT" && !x.digest,
+      "TERMS_LOCKED",
+      "Sent agreements cannot be edited. Create a new agreement for new terms.",
     );
-    freeze(x);
-    x.invitation = {
-      tokenHash: sha256(raw),
-      expiresAt: new Date(Date.now() + 7 * 86400000).toISOString(),
-    };
+    requireCondition(
+      (x.draftRevision || 0) === version,
+      "DRAFT_CHANGED",
+      "This draft changed in another tab. Reload it before editing.",
+    );
+    if (x.sourceUrl !== data.sourceUrl) {
+      x.baseline = undefined;
+      x.baselineStatus = "QUEUED";
+      x.lastError = undefined;
+    }
+    Object.assign(x, data);
+    x.draftRevision = version + 1;
   });
-  return { a, invitationUrl: configuration().appUrl + "/invite#" + raw };
+  await store.ensureJob(id);
+  return a;
 }
+
 export async function invite(store: Store, who: Actor, id: string) {
   await allowed(store, who, id, "seller");
   const raw = token();
-  await mutate(store, id, (a) => {
+  const a = await mutate(store, id, (a) => {
     requireCondition(
       a.state === "AWAITING_BUYER" &&
         !a.invitation?.redeemedAt &&
@@ -165,7 +324,9 @@ export async function invite(store: Store, who: Actor, id: string) {
       expiresAt: new Date(Date.now() + 7 * 86400000).toISOString(),
     };
   });
-  return configuration().appUrl + "/invite#" + raw;
+  const url = configuration().appUrl + "/invite#" + raw;
+  await invitationMail(store, a, url);
+  return url;
 }
 export async function consent(
   store: Store,
@@ -192,7 +353,7 @@ export async function consent(
         digest,
         at: new Date().toISOString(),
         actorId: who.id,
-        copyVersion: "1",
+        copyVersion: a.terms?.schemaVersion === "2" ? "2" : "1",
       });
       audit(
         a,
@@ -213,6 +374,25 @@ export async function checkout(store: Store, who: Actor, id: string) {
     "CONSENT_REQUIRED",
     "Accept this agreement before authorizing payment.",
   );
+  if (a.mode === "live") {
+    requireCondition(
+      readiness().livePayments,
+      "LIVE_UNAVAILABLE",
+      "Live payments are temporarily unavailable. Nothing has been charged.",
+      503,
+    );
+    const connection = await merchantStatus(store, {
+      ...who,
+      role: "seller",
+      kind: "seller",
+    });
+    requireCondition(
+      connection.status === "READY" &&
+        connection.merchantId === a.terms?.merchantId,
+      "MERCHANT_UNAVAILABLE",
+      "The freelancer needs to reconnect their payment account.",
+    );
+  }
   const previous = await store.getValue<string>("approval:" + id);
   if (a.payment.status === "ORDER_CREATED" && previous !== undefined)
     return { approvalUrl: previous, orderId: a.payment.orderId, mode: a.mode };
@@ -324,7 +504,7 @@ export async function submit(
     x.currentSubmissionId = subId;
     x.freshEvidence = undefined;
     x.manualAcceptanceId = undefined;
-    if (x.holdReason === "CONTENT_CHANGED") {
+    if (x.holdReason === "CONTENT_CHANGED" || x.termsVersion === "2") {
       x.state = "ACTIVE";
       x.reviewHoldAt = undefined;
       x.holdReason = undefined;
@@ -370,7 +550,7 @@ export async function setVariant(
     );
   });
 }
-export async function hold(store: Store, who: Actor, id: string) {
+export async function hold(store: Store, who: Actor, id: string, note = "") {
   await allowed(store, who, id, "buyer");
   return mutate(store, id, (a) => {
     requireCondition(
@@ -379,6 +559,8 @@ export async function hold(store: Store, who: Actor, id: string) {
       "Review must be requested before collection starts.",
     );
     a.state = "REVIEW_HOLD";
+    a.changeRequest = note.slice(0, 1000);
+    a.manualAcceptanceId = undefined;
     a.reviewHoldAt = new Date().toISOString();
     a.holdReason = "BUYER";
     audit(
@@ -403,10 +585,22 @@ export async function acceptSubmission(
       x.payment.status === "AUTHORIZED" &&
         !x.cancelRequestedAt &&
         s?.id === submissionId &&
-        s.evidence?.artifactHash === artifactHash,
+        s.evidence?.artifactHash === artifactHash &&
+        s.evidence.complete &&
+        Date.parse(x.payment.captureDeadline || "") > Date.now(),
       "SUBMISSION_CHANGED",
       "Review the current submitted version before accepting it.",
     );
+    if (
+      x.manualAcceptanceId &&
+      x.consents.some(
+        (c) =>
+          c.id === x.manualAcceptanceId &&
+          c.submissionId === submissionId &&
+          c.artifactHash === artifactHash,
+      )
+    )
+      return;
     const id = randomUUID();
     x.consents.push({
       id,
@@ -416,7 +610,7 @@ export async function acceptSubmission(
       actorId: who.id,
       submissionId,
       artifactHash,
-      copyVersion: "1",
+      copyVersion: x.terms?.schemaVersion === "2" ? "2" : "1",
     });
     x.manualAcceptanceId = id;
     x.state = "ACTIVE";

@@ -1,4 +1,6 @@
 import { lookup } from "node:dns/promises";
+import { request as httpsRequest } from "node:https";
+import { gunzipSync, brotliDecompressSync } from "node:zlib";
 import { randomUUID } from "node:crypto";
 import { rm } from "node:fs/promises";
 import chromium from "@sparticuz/chromium";
@@ -23,6 +25,7 @@ export function validateCaptureUrl(
   const local =
     allowLocal &&
     !process.env.VERCEL &&
+    !process.env.NETLIFY &&
     ["localhost", "127.0.0.1"].includes(u.hostname);
   if (
     u.username ||
@@ -32,21 +35,113 @@ export function validateCaptureUrl(
       (u.protocol !== "https:" ||
         u.port ||
         ipaddr.isValid(u.hostname.replace(/[\[\]]/g, "")))) ||
-    (!local && !allowedHosts.includes(u.hostname)) ||
+    (!local && allowedHosts.length > 0 && !allowedHosts.includes(u.hostname)) ||
     (local && !["http:", "https:"].includes(u.protocol))
   ) {
     throw new DomainError(
       "SOURCE_NOT_ALLOWED",
-      "This website is not approved for capture.",
+      "Use a public HTTPS page without a password, port or fragment.",
       400,
     );
   }
   return u;
 }
+
+// Chromium cannot resolve unapproved origins. Public dependencies are fetched here,
+// with DNS checked and pinned for every redirect, and no browser cookies or secrets.
+export async function publicResource(
+  raw: string,
+  signal: AbortSignal,
+  redirects = 0,
+): Promise<{ status: number; contentType: string; body: Buffer }> {
+  if (redirects > 3) throw new Error("Too many redirects");
+  const url = validateCaptureUrl(raw, []);
+  const addresses = await lookup(url.hostname, { all: true });
+  if (
+    signal.aborted ||
+    !addresses.length ||
+    addresses.some((a) => !isPublicAddress(a.address))
+  )
+    throw new Error("Unsafe dependency");
+  const address = addresses.find((a) => a.family === 4) || addresses[0];
+  return new Promise((resolve, reject) => {
+    const req = httpsRequest(
+      url,
+      {
+        method: "GET",
+        agent: false,
+        signal,
+        lookup: (_hostname, options, callback) => {
+          if (options.all) callback(null, [address], address.family);
+          else callback(null, address.address, address.family);
+        },
+        headers: {
+          "Accept-Encoding": "identity",
+          "User-Agent": "RevisionPay page capture",
+        },
+      },
+      (response) => {
+        const status = response.statusCode || 502;
+        if (
+          [301, 302, 303, 307, 308].includes(status) &&
+          response.headers.location
+        ) {
+          response.resume();
+          void publicResource(
+            new URL(response.headers.location, url).href,
+            signal,
+            redirects + 1,
+          ).then(resolve, reject);
+          return;
+        }
+        const chunks: Buffer[] = [];
+        let size = 0;
+        response.on("data", (chunk: Buffer) => {
+          size += chunk.length;
+          if (size > 2 * 1024 * 1024)
+            req.destroy(new Error("Dependency too large"));
+          else chunks.push(chunk);
+        });
+        response.on("error", reject);
+        response.on("end", () => {
+          try {
+            let body: Buffer = Buffer.concat(chunks);
+            if (response.headers["content-encoding"] === "gzip")
+              body = gunzipSync(body, { maxOutputLength: 2 * 1024 * 1024 });
+            else if (response.headers["content-encoding"] === "br")
+              body = brotliDecompressSync(body, {
+                maxOutputLength: 2 * 1024 * 1024,
+              });
+            else if (
+              response.headers["content-encoding"] &&
+              response.headers["content-encoding"] !== "identity"
+            )
+              throw new Error("Unsupported encoding");
+            resolve({
+              status,
+              body,
+              contentType:
+                response.headers["content-type"] || "application/octet-stream",
+            });
+          } catch (e) {
+            reject(e);
+          }
+        });
+      },
+    );
+    req.setTimeout(10000, () => req.destroy(new Error("Dependency timed out")));
+    req.on("error", reject);
+    req.end();
+  });
+}
 export async function collect(
   raw: string,
   requestId: string,
-  options: { allowedHosts: string[]; allowLocal?: boolean },
+  options: {
+    allowedHosts: string[];
+    allowLocal?: boolean;
+    publicResources?: boolean;
+  },
 ) {
   const url = validateCaptureUrl(raw, options.allowedHosts, options.allowLocal);
   const local = Boolean(
@@ -90,6 +185,7 @@ export async function collect(
   const watchdog = setTimeout(() => {
     void browser.close().catch(() => undefined);
   }, 35000);
+  const resources = new AbortController();
   try {
     const page = await browser.newPage();
     await page.setViewport({ width: 1440, height: 1000, deviceScaleFactor: 1 });
@@ -103,6 +199,7 @@ export async function collect(
     await page.setRequestInterception(true);
     const blocked = new Set<string>();
     let requests = 0;
+    let dependencyBytes = 0;
     page.on("request", (r) => {
       const target = r.url();
       let permitted = false;
@@ -115,6 +212,36 @@ export async function collect(
           !["media", "websocket"].includes(r.resourceType());
       } catch {
         /* fail closed */
+      }
+      if (
+        !permitted &&
+        options.publicResources &&
+        requests <= 100 &&
+        r.method() === "GET" &&
+        ["stylesheet", "script", "image", "font", "fetch", "xhr"].includes(
+          r.resourceType(),
+        )
+      ) {
+        void publicResource(
+          target,
+          AbortSignal.any([resources.signal, AbortSignal.timeout(12000)]),
+        )
+          .then(async (result) => {
+            dependencyBytes += result.body.length;
+            if (dependencyBytes > 10 * 1024 * 1024 || result.status >= 400)
+              throw new Error("Incomplete dependency");
+            await r.respond({
+              status: result.status,
+              contentType: result.contentType,
+              headers: { "Access-Control-Allow-Origin": "*" },
+              body: result.body,
+            });
+          })
+          .catch(() => {
+            blocked.add(r.resourceType());
+            void r.abort().catch(() => undefined);
+          });
+        return;
       }
       if (!permitted) {
         blocked.add(r.resourceType());
@@ -143,6 +270,11 @@ export async function collect(
     await page.evaluate(async () => {
       await document.fonts.ready;
     });
+    await page
+      .waitForNetworkIdle({ idleTime: 500, timeout: 10000 })
+      .catch(() => {
+        blocked.add("document");
+      });
     await new Promise((resolve) => setTimeout(resolve, 350));
     const extracted = await page.evaluate(() => {
       const root = document.body;
@@ -251,6 +383,7 @@ export async function collect(
     });
     return { evidence, screenshotBase64: screenshot.toString("base64") };
   } finally {
+    resources.abort();
     clearTimeout(watchdog);
     await browser.close().catch(() => undefined);
     await rm(profile, { recursive: true, force: true }).catch(() => undefined);
