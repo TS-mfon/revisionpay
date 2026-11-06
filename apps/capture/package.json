@@ -4,15 +4,19 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "build": "node build.mjs",
     "dev": "tsx src/dev.ts",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
     "@revisionpay/domain": "workspace:*",
     "@sparticuz/chromium": "153.0.0",
-    "puppeteer-core": "25.11.0",
     "dotenv": "^17.0.0",
     "ipaddr.js": "^2.2.0",
+    "puppeteer-core": "25.11.0",
     "zod": "^4.0.0"
+  },
+  "devDependencies": {
+    "esbuild": "0.28.2"
   }
 }

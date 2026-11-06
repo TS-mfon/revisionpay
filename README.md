@@ -100,9 +100,9 @@ Create two projects from this monorepo:
 | Project | Root directory | Framework | Build |
 | --- | --- | --- | --- |
 | Application | `apps/web` | Next.js | `pnpm build` |
-| Isolated capture | `apps/capture` | Other | None; Node.js function at `/api/snapshot` |
+| Isolated capture | `apps/capture` | Other | `pnpm build`; bundled Node.js function at `/api/snapshot` |
 
-Use Node 24 and `pnpm install --frozen-lockfile`. Enable source files outside the root directory so the workspace package and Python contract are included. The Next.js configuration explicitly traces the contract and excludes local credentials and data.
+Use Node 24 and `pnpm install --frozen-lockfile`. Enable source files outside the root directory so the workspace package and Python contract are included. The Next.js configuration explicitly traces the contract and excludes local credentials and data. The capture build emits a self-contained Build Output API function with bundled JavaScript and copied Chromium binaries; it does not deploy workspace symlinks.
 
 Set the application variables above in the application project's **production** environment. Set only `CAPTURE_SECRET`, `CAPTURE_ALLOWED_HOSTS`, and `CAPTURE_ALLOW_LOCALHOST=false` on the capture project. The capture process must not receive PayPal credentials, Atlas credentials, or the relayer key.
 

@@ -20,6 +20,8 @@ jobs:
       - run: pnpm typecheck
       - run: pnpm test
       - run: pnpm build
+      - run: pnpm --filter @revisionpay/capture build
+      - run: node --input-type=module -e "await import('./apps/capture/.vercel/output/functions/api/snapshot.func/runtime/index.mjs')"
       - run: pnpm test:e2e
       - uses: actions/upload-artifact@v4
         if: failure()

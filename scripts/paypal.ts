@@ -43,10 +43,26 @@ async function main() {
       signal: AbortSignal.timeout(20000),
     });
     if (!list.ok) throw new Error("Could not read PayPal webhooks.");
-    const existing = (await list.json()).webhooks?.find(
-      (hook: { url: string }) => hook.url === url,
-    );
+    const hooks = (await list.json()).webhooks || [];
+    const existing = hooks.find((hook: { url: string }) => hook.url === url);
     let id = existing?.id;
+    const previous = hooks.find(
+      (hook: { id: string }) => hook.id === c.paypalWebhookId,
+    );
+    if (!id && previous) {
+      const response = await fetch(
+        base + "/v1/notifications/webhooks/" + previous.id,
+        {
+          method: "PATCH",
+          headers,
+          body: JSON.stringify([{ op: "replace", path: "/url", value: url }]),
+          signal: AbortSignal.timeout(20000),
+        },
+      );
+      if (!response.ok)
+        throw new Error("Could not update the configured webhook URL.");
+      id = previous.id;
+    }
     if (!id) {
       const response = await fetch(base + "/v1/notifications/webhooks", {
         method: "POST",
