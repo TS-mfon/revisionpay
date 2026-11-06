@@ -152,6 +152,22 @@ describe("durable payment workflow", () => {
     expect(saved.payment.command?.reason).toBe("BUYER_ACCEPTED");
     expect(saved.submissions[0].verification.result?.verdict).toBe("REVISE");
   });
+  it("keeps authorization expiry scheduled after deployment consensus fails", async () => {
+    const { store, workflow, capture } = setup();
+    const a = agreement();
+    a.mode = "sandbox";
+    a.contract = { state: "SUBMITTED", txId: "test-deployment" };
+    workflow.services.tx = async () => ({
+      status: "UNDETERMINED",
+      execution: "",
+      recipient: "",
+      raw: {},
+    });
+    await store.createAgreement(a);
+    expect(await workflow.advance(a.id)).toBe(a.payment.captureDeadline);
+    expect((await store.getAgreement(a.id))!.contract.state).toBe("FAILED");
+    expect(capture).not.toHaveBeenCalled();
+  });
   it("isolates tenants and enforces seller/buyer roles", async () => {
     const { store } = setup();
     const a = agreement();

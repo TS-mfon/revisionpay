@@ -425,7 +425,7 @@ export class Workflow {
           x.contract.error =
             "Studionet did not reach a successful final deployment.";
         });
-        return;
+        return a.payment.captureDeadline;
       }
       return later(8);
     }
