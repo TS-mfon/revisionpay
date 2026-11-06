@@ -1,0 +1,90 @@
+{
+  "network": "studionet",
+  "chainId": 61999,
+  "startedAt": "2026-11-05T03:21:26.924Z",
+  "agreementDigest": "sha256:0ca2e3001bb58c119ccd18b803e2a0281df043cac0b764ac2292416ed60b13a0",
+  "payment": "synthetic; no PayPal call",
+  "evidence": "synthetic fixtures; real contract execution",
+  "deploymentTx": "0x749cf2f05d374ab2532d0c588d5ee01751cc54ddca8fac48d8594691e5e3b769",
+  "contractAddress": "0xF0d7764E9CaDa53D852451Db251181b066386cc5",
+  "results": [
+    {
+      "variant": "incomplete",
+      "txId": "0xce76fc76f9d74cf06de0009ec4554a6462c340c026ef98b860a1705e04db73b5",
+      "result": {
+        "schemaVersion": "1",
+        "agreementDigest": "sha256:0ca2e3001bb58c119ccd18b803e2a0281df043cac0b764ac2292416ed60b13a0",
+        "submissionId": "540c56d6-6d79-4b59-b23b-ddeb42ffae4e",
+        "artifactHash": "sha256:d952c941dd973ac307000579e933a2fcc3ef3731d739f5b59a2368ccc35aa884",
+        "criteria": [
+          {
+            "id": "R1",
+            "status": "SATISFIED",
+            "evidenceBlockIds": [
+              "current:block:2"
+            ],
+            "reason": "The text explicitly mentions a 14-day free trial with no credit card required and states users will not be charged automatically."
+          },
+          {
+            "id": "R2",
+            "status": "UNSATISFIED",
+            "evidenceBlockIds": [
+              "current:block:4"
+            ],
+            "reason": "The revision introduces a mandatory 12-month commitment and a $99 termination fee, contradicting the requirement to preserve monthly billing and anytime cancellation."
+          },
+          {
+            "id": "R3",
+            "status": "SATISFIED",
+            "evidenceBlockIds": [
+              "current:block:5",
+              "current:link:1"
+            ],
+            "reason": "The primary call to action text 'Start your 14-day free trial' links to the specified URL and does not imply an immediate purchase."
+          }
+        ],
+        "verdict": "REVISE"
+      }
+    },
+    {
+      "variant": "corrected",
+      "txId": "0x69c6c2b97248ca22607f9da13de55d4d2c13b5e205df75e8f606829a54e7de21",
+      "result": {
+        "schemaVersion": "1",
+        "agreementDigest": "sha256:0ca2e3001bb58c119ccd18b803e2a0281df043cac0b764ac2292416ed60b13a0",
+        "submissionId": "043cea44-beed-47d1-9451-3b0ce9f8ed1e",
+        "artifactHash": "sha256:f27e4681809784e197e9480f78caf08e7758473f634e7b7625f2654b31f2399c",
+        "criteria": [
+          {
+            "id": "R1",
+            "status": "SATISFIED",
+            "evidenceBlockIds": [
+              "current:block:2"
+            ],
+            "reason": "The copy explicitly mentions a 14-day free trial, no credit card requirement, and states the user will not be charged automatically."
+          },
+          {
+            "id": "R2",
+            "status": "SATISFIED",
+            "evidenceBlockIds": [
+              "current:block:3",
+              "current:block:4"
+            ],
+            "reason": "The $29 monthly price, monthly billing, and cancellation terms are preserved without introducing annual commitments or fees."
+          },
+          {
+            "id": "R3",
+            "status": "SATISFIED",
+            "evidenceBlockIds": [
+              "current:block:5",
+              "current:link:1"
+            ],
+            "reason": "The CTA text 'Start your 14-day free trial' avoids implying immediate purchase and links to the required URL."
+          }
+        ],
+        "verdict": "PASS"
+      }
+    }
+  ],
+  "completedAt": "2026-11-05T03:23:44.506Z"
+}

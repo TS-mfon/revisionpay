@@ -1,0 +1,17 @@
+node_modules/
+.next/
+.vercel/
+.env
+.env.*
+.local/
+coverage/
+test-results/
+playwright-report/
+*.tsbuildinfo
+__pycache__/
+.pytest_cache/
+.DS_Store
+*.log
+.vercel
+.env*
+!.env.example

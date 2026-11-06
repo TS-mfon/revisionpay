@@ -1,0 +1,29 @@
+{
+  "name": "@revisionpay/web",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev --hostname 0.0.0.0",
+    "build": "next build",
+    "start": "next start --hostname 0.0.0.0",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@revisionpay/domain": "workspace:*",
+    "next": "16.4.5",
+    "react": "19.3.1",
+    "react-dom": "19.3.1",
+    "lucide-react": "^0.468.0",
+    "mongodb": "7.8.0",
+    "better-auth": "1.7.17",
+    "@better-auth/mongo-adapter": "1.7.17",
+    "dotenv": "^17.0.0",
+    "genlayer-js": "1.1.8",
+    "viem": "^2.29.0",
+    "zod": "^4.0.0"
+  },
+  "devDependencies": {
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0"
+  }
+}

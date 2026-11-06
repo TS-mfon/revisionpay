@@ -1,0 +1,41 @@
+{
+  "name": "revisionpay",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@10.34.9",
+  "engines": {
+    "node": "24.x"
+  },
+  "scripts": {
+    "dev": "pnpm --filter @revisionpay/web dev",
+    "dev:capture": "pnpm --filter @revisionpay/capture dev",
+    "build": "pnpm --filter @revisionpay/web build",
+    "typecheck": "pnpm -r typecheck",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:e2e": "playwright test",
+    "setup": "tsx scripts/setup.ts",
+    "studio:check": "tsx scripts/studio.ts check",
+    "studio:smoke": "tsx scripts/studio.ts smoke",
+    "paypal:check": "tsx scripts/paypal.ts check",
+    "paypal:webhook": "tsx scripts/paypal.ts webhook",
+    "owner:login": "tsx scripts/owner-login.ts",
+    "db:indexes": "tsx scripts/indexes.ts"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.64.1",
+    "@types/node": "^24.0.0",
+    "dotenv": "^17.0.0",
+    "mongodb-memory-server": "^10.3.0",
+    "prettier": "3.6.2",
+    "tsx": "^4.20.0",
+    "typescript": "^5.9.3",
+    "vitest": "5.1.0"
+  },
+  "dependencies": {
+    "genlayer-js": "1.1.8",
+    "mongodb": "7.8.0",
+    "viem": "^2.29.0"
+  }
+}
