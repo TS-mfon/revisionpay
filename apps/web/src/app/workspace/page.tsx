@@ -3,6 +3,7 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import { Plus, ArrowRight, FileText, Search } from "lucide-react";
 import { money, nextAction, type Agreement } from "@revisionpay/domain";
+import { AgreementTemplates } from "@/components/agreement-templates";
 import {
   api,
   Shell,
@@ -89,6 +90,9 @@ export default function Workspace() {
                 Set up payments <ArrowRight size={16} />
               </Link>
             </div>
+          )}
+          {who?.role === "seller" && profile?.readiness?.mode !== "live" && (
+            <AgreementTemplates />
           )}
           {agreements.length === 0 ? (
             <section className="welcome-panel">

@@ -6,7 +6,8 @@
   "exports": {
     ".": "./src/index.ts",
     "./crypto": "./src/crypto.ts",
-    "./fixtures": "./src/fixtures.ts"
+    "./fixtures": "./src/fixtures.ts",
+    "./templates": "./src/templates.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit"

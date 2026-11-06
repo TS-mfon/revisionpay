@@ -3,7 +3,8 @@ import { randomUUID } from "node:crypto";
 
 const baseURL = process.env.PLAYWRIGHT_BASE_URL || "http://localhost:3100";
 // Workers evaluate this config again. Keep their fixture store identical to the server's.
-const localDataPath = (process.env.REVISIONPAY_E2E_DATA_PATH ||= ".local/e2e-" + randomUUID() + ".json");
+const localDataPath = (process.env.REVISIONPAY_E2E_DATA_PATH ||=
+  ".local/e2e-" + randomUUID() + ".json");
 export default defineConfig({
   metadata: { localDataPath },
   testDir: "./tests/e2e",
@@ -22,7 +23,9 @@ export default defineConfig({
   webServer: process.env.PLAYWRIGHT_BASE_URL
     ? undefined
     : {
-        command: "pnpm --filter @revisionpay/web dev --port 3100",
+        command: process.env.PLAYWRIGHT_PRODUCTION
+          ? "pnpm --filter @revisionpay/web start --port 3100"
+          : "pnpm --filter @revisionpay/web dev --port 3100",
         url: baseURL + "/api/config",
         reuseExistingServer: false,
         timeout: 120000,

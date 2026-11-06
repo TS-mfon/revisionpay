@@ -27,7 +27,8 @@ export default function Builder() {
     [error, setError] = useState(""),
     [saved, setSaved] = useState("Your draft is private"),
     [busy, setBusy] = useState(false),
-    [loaded, setLoaded] = useState(false);
+    [loaded, setLoaded] = useState(false),
+    [templateDraft, setTemplateDraft] = useState(false);
   const current = useRef(form),
     id = useRef(""),
     version = useRef(0),
@@ -44,6 +45,7 @@ export default function Builder() {
         if (existing) {
           const d = await api("agreements/" + existing),
             a = d.agreement;
+          if (active) setTemplateDraft(Boolean(a.testTemplateId));
           if (q.has("draft") && a.state !== "DRAFT")
             throw new Error(
               "This agreement was already sent and cannot be edited.",
@@ -81,7 +83,7 @@ export default function Builder() {
     return {
       title: f.title.trim() || new URL(f.sourceUrl).hostname + " page revision",
       clientName: f.clientName,
-      clientEmail: f.clientEmail,
+      clientEmail: f.clientEmail.trim() || undefined,
       sourceUrl: f.sourceUrl,
       amountMinor: Math.round(Number(f.amount) * 100),
       requirements: f.requirements.map((description, i) => ({
@@ -93,11 +95,18 @@ export default function Builder() {
   }
   function valid(f: Form) {
     try {
+      const url = new URL(f.sourceUrl);
+      const localTestPage =
+        templateDraft &&
+        ["localhost", "127.0.0.1"].includes(url.hostname) &&
+        url.origin === location.origin &&
+        url.pathname === "/test-site/" + id.current;
       return (
-        /^https:\/\//.test(f.sourceUrl) &&
-        Boolean(new URL(f.sourceUrl).hostname) &&
+        (url.protocol === "https:" || localTestPage) &&
+        Boolean(url.hostname) &&
         f.clientName.trim().length >= 2 &&
-        /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(f.clientEmail) &&
+        ((templateDraft && !f.clientEmail.trim()) ||
+          /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(f.clientEmail)) &&
         Number(f.amount) >= 25 &&
         Number(f.amount) <= 500 &&
         f.requirements.every((r) => r.trim().length >= 15)
@@ -235,14 +244,22 @@ export default function Builder() {
               </label>
               <label>
                 Client email
+                {templateDraft && (
+                  <span className="optional">Optional for testing</span>
+                )}
                 <input
                   name="clientEmail"
                   type="email"
-                  required
+                  required={!templateDraft}
                   autoComplete="email"
                   value={form.clientEmail}
                   onChange={(e) => update("clientEmail", e.target.value)}
                 />
+                {templateDraft && (
+                  <span className="field-help">
+                    Leave blank to test with a private invitation link.
+                  </span>
+                )}
               </label>
             </div>
             <label className="fee-field">

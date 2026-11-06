@@ -52,6 +52,9 @@ export default function AgreementPage({
     [requesting, setRequesting] = useState(false),
     [canceling, setCanceling] = useState(false),
     [returnMessage, setReturnMessage] = useState("");
+  const [testVersion, setTestVersion] = useState<"incomplete" | "corrected">(
+    "corrected",
+  );
   const returned = useRef(false),
     latest = useRef<Agreement | undefined>(undefined);
   const refresh = useCallback(async () => {
@@ -138,10 +141,14 @@ export default function AgreementPage({
     else if (d.approvalUrl) location.assign(d.approvalUrl);
   }
   async function submit() {
-    if (a?.mode === "demo") {
+    if (a?.mode === "demo" || testPage) {
       if (
         !(await action("variant", {
-          variant: a.submissions.length ? "corrected" : "incomplete",
+          variant: testPage
+            ? testVersion
+            : a.submissions.length
+              ? "corrected"
+              : "incomplete",
         }))
       )
         return;
@@ -151,6 +158,11 @@ export default function AgreementPage({
   const s = a ? currentSubmission(a) : undefined,
     seller = who?.role === "seller",
     demo = a?.mode === "demo",
+    testPage =
+      a?.mode === "sandbox" &&
+      Boolean(a.testTemplateId) &&
+      typeof window !== "undefined" &&
+      a.sourceUrl === window.location.origin + "/test-site/" + id,
     paid = a?.payment.status === "PAID",
     terminal =
       a?.state === "CANCELED" ||
@@ -275,6 +287,20 @@ export default function AgreementPage({
               Open page <ArrowUpRight size={16} />
             </a>
           </div>
+          {testPage && seller && !terminal && (
+            <div className="template-guide">
+              <strong>Your test agreement is ready</strong>
+              <p>
+                {a.state === "DRAFT"
+                  ? "We’ve filled in a sample client, fee and checklist. Once the page check finishes, choose Send to client and open the private invitation in another browser or a private window to test as the client."
+                  : "Use the invitation in another browser or a private window for client approval. After PayPal authorization, return here to publish a sample revision and check it."}
+              </p>
+              <p className="small-text">
+                This uses the connected PayPal sandbox and page checks. No email
+                is sent unless you add a tester’s email in Edit agreement.
+              </p>
+            </div>
+          )}
           {legacy && (
             <div className="notice warning">
               <div>
@@ -735,6 +761,30 @@ export default function AgreementPage({
                   )}
                   {canSubmit ? (
                     <>
+                      {testPage && (
+                        <label>
+                          Test revision to publish
+                          <select
+                            value={testVersion}
+                            onChange={(e) =>
+                              setTestVersion(
+                                e.target.value as "incomplete" | "corrected",
+                              )
+                            }
+                          >
+                            <option value="corrected">
+                              Completed changes — ready for client review
+                            </option>
+                            <option value="incomplete">
+                              One mistake — try requesting a change
+                            </option>
+                          </select>
+                          <span className="field-help">
+                            We’ll update your sample page, capture it and check
+                            the agreed requirements.
+                          </span>
+                        </label>
+                      )}
                       <label>
                         What changed? <span className="optional">Optional</span>
                         <textarea
@@ -747,14 +797,16 @@ export default function AgreementPage({
                       </label>
                       <Button
                         disabled={Boolean(busy)}
-                        busy={busy === "submit"}
+                        busy={busy === "submit" || busy === "variant"}
                         onClick={submit}
                       >
                         {demo
                           ? a.submissions.length
                             ? "Submit corrected page"
                             : "Submit first revision"
-                          : "Check updated page"}
+                          : testPage
+                            ? "Publish and check revision"
+                            : "Check updated page"}
                         <ArrowRight size={18} />
                       </Button>
                     </>

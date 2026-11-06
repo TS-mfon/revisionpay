@@ -241,3 +241,96 @@ test("real draft starts empty, saves to the workspace and survives reload", asyn
   expect(records).toHaveLength(1);
   expect(records[0].clientEmail).toBe("client@example.com");
 });
+
+test("workspace templates open separate editable sandbox drafts with working sample pages", async ({
+  page,
+  context,
+  baseURL,
+}, testInfo) => {
+  test.skip(
+    Boolean(process.env.PLAYWRIGHT_BASE_URL),
+    "Local owner fixture; hosted account access remains private.",
+  );
+  const { LocalStore } = await import("../../apps/web/src/server/store");
+  const { issueSession } = await import("../../apps/web/src/server/auth");
+  const { AGREEMENT_TEMPLATES } = await import(
+    "../../packages/domain/src/templates"
+  );
+  const path = await import("node:path");
+  const store = new LocalStore(
+    path.resolve(process.cwd(), testInfo.config.metadata.localDataPath),
+  );
+  const { cookie } = await issueSession(store, {
+    kind: "owner",
+    role: "seller",
+    tenantId: "owner:e2e-templates",
+  });
+  await context.addCookies([
+    {
+      name: "rp_session",
+      value: cookie.split(";")[0].split("=")[1],
+      url: baseURL!,
+    },
+  ]);
+  await page.goto("/workspace");
+  await expect(
+    page.getByRole("button", { name: /^Use template:/ }),
+  ).toHaveCount(5);
+  await page.screenshot({
+    path: "test-results/workspace-templates-desktop.png",
+    fullPage: true,
+  });
+  await page.setViewportSize({ width: 390, height: 844 });
+  expect(
+    await page.evaluate(
+      () => document.documentElement.scrollWidth <= innerWidth,
+    ),
+  ).toBe(true);
+  await page.screenshot({
+    path: "test-results/workspace-templates-mobile.png",
+    fullPage: true,
+  });
+  await page.setViewportSize({ width: 1280, height: 900 });
+  for (const template of AGREEMENT_TEMPLATES) {
+    await page
+      .getByRole("button", {
+        name: "Use template: " + template.name,
+        exact: true,
+      })
+      .click();
+    await expect(
+      page.getByRole("heading", { name: template.name, exact: true }),
+    ).toBeVisible();
+    await expect(
+      page.getByText("Nothing charged", { exact: true }),
+    ).toBeVisible();
+    const source = await page
+      .getByRole("link", { name: "Open page", exact: true })
+      .getAttribute("href");
+    const sample = await context.newPage();
+    await sample.goto(source!);
+    await expect(
+      sample.getByRole("heading", {
+        name: template.page.original.headline,
+        exact: true,
+      }),
+    ).toBeVisible();
+    await sample.close();
+    await page.goto("/workspace");
+  }
+  const saved = await store.listAgreements("owner:e2e-templates");
+  expect(saved).toHaveLength(5);
+  expect(
+    saved.every(
+      (a) =>
+        a.mode === "sandbox" && a.payment.status === "NONE" && !a.invitation,
+    ),
+  ).toBe(true);
+  await page.goto("/agreements/new?draft=" + saved[0].id);
+  await page.getByLabel("Revision fee · USD").fill("135");
+  await page.getByRole("button", { name: "Review agreement" }).click();
+  await expect(
+    page.getByRole("region", { name: "Payment status" }),
+  ).toContainText("$135");
+  expect(await store.listAgreements("owner:e2e-templates")).toHaveLength(5);
+});

@@ -362,7 +362,9 @@ async function route(
         store,
         who,
         data.input,
-        data.template === true,
+        data.templateId !== undefined
+          ? z.string().min(1).max(80).parse(data.templateId)
+          : data.template === true,
       );
       kick(a.id);
       return json({ agreement: publicAgreement(a) }, 201);

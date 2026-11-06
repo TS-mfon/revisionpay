@@ -251,6 +251,7 @@ export interface Agreement {
   sellerName?: string;
   sellerEmail?: string;
   termsVersion?: "2";
+  testTemplateId?: string;
   draftRevision?: number;
   admissionMonth?: string;
   changeRequest?: string;

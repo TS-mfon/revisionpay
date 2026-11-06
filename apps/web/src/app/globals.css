@@ -3998,3 +3998,50 @@ blockquote { margin:14px 0 20px; padding:12px 20px; border-left:3px solid #d5b16
 .google-mark { color:#315faa; font-size:21px; font-weight:750; }
 .email-alternative { margin-top:20px; border-top:1px solid var(--line); }
 .email-alternative>summary { font-size:14px; }
+
+.agreement-templates { margin:0 0 32px; }
+.templates-heading { display:flex; align-items:flex-start; justify-content:space-between; gap:20px; margin-bottom:20px; }
+.templates-heading h2 { font-size:25px; margin:0 0 9px; }
+.templates-heading p { max-width:690px; margin-bottom:0; }
+.templates-heading .eyebrow { margin-bottom:9px; }
+.template-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(205px,1fr)); gap:14px; }
+.workspace-template-card { display:flex; flex-direction:column; padding:22px; border:1px solid var(--line); border-radius:10px; background:white; }
+.workspace-template-card-top { display:flex; justify-content:space-between; align-items:center; color:#52734b; margin-bottom:21px; }
+.workspace-template-card-top span { font-size:12px; letter-spacing:.1em; }
+.workspace-template-card h3 { font-size:18px; line-height:1.4; margin:0 0 10px; }
+.workspace-template-card>p { font-size:14px; line-height:1.65; margin:0 0 20px; flex:1; }
+.workspace-template-card-meta { display:flex; flex-wrap:wrap; gap:8px; align-items:center; justify-content:space-between; margin-bottom:18px; }
+.workspace-template-card-meta strong { font-size:21px; }
+.workspace-template-card-meta small,.workspace-template-card-meta>span { font-size:11px; color:var(--muted); font-weight:400; }
+.workspace-template-card .button { width:100%; justify-content:center; font-size:13px; padding:12px 8px; }
+.agreement-templates>.small-text { margin:14px 0 0; }
+.template-guide { padding:20px 24px; border:1px solid #cbdabb; border-radius:9px; background:#f4f8ee; margin-bottom:24px; }
+.template-guide p { margin:8px 0 0; font-size:14px; }
+.sample-site { --sample-accent:#254f3d; background:#fbfcf8; min-height:100vh; color:#213a2c; }
+.sample-site header { max-width:1120px; margin:auto; padding:30px 28px; display:flex; gap:20px; justify-content:space-between; align-items:center; border-bottom:1px solid #d9e2d2; }
+.sample-site header strong { font-size:23px; letter-spacing:-.04em; }
+.sample-site header>span { font-size:12px; color:#687769; }
+.sample-site main { max-width:870px; margin:auto; padding:80px 28px; }
+.sample-site h1 { font-size:clamp(36px,5vw,62px); line-height:1.12; margin:20px 0 25px; max-width:750px; }
+.sample-site .sample-intro { font-size:22px; line-height:1.65; }
+.sample-details { padding:24px; margin:32px 0; border:1px solid #d5dfcc; border-left:4px solid var(--sample-accent); border-radius:4px; background:white; }
+.sample-details h2 { font-size:18px; margin:0 0 10px; }
+.sample-details p { margin:0; font-size:18px; line-height:1.65; }
+.sample-site .sample-cta { display:inline-flex; gap:25px; justify-content:space-between; align-items:center; min-height:50px; padding:15px 24px; background:var(--sample-accent); color:white; border-radius:7px; font-weight:600; }
+.sample-destination { padding-top:50px; margin-top:45px; border-top:1px solid #d9e2d2; }
+.sample-destination h2 { font-size:21px; }
+.sample-destination p { font-size:14px; }
+.sample-site footer { max-width:1120px; margin:auto; padding:25px 28px; border-top:1px solid #d9e2d2; font-size:12px; }
+.sample-portfolio-contact { --sample-accent:#604e7f; background:#faf9fd; }
+.sample-delivery-returns { --sample-accent:#86533a; background:#fcf8f4; }
+.sample-webinar-signup { --sample-accent:#28567c; background:#f5f9fc; }
+.sample-restaurant-booking { --sample-accent:#546335; background:#fafbf4; }
+@media(max-width:600px) {
+  .templates-heading { display:block; }
+  .templates-heading>.badge { display:inline-flex; margin-top:14px; }
+  .template-grid { grid-template-columns:1fr; }
+  .workspace-template-card { padding:22px; }
+  .workspace-template-card-top { margin-bottom:13px; }
+  .sample-site header { align-items:flex-start; flex-direction:column; gap:8px; }
+  .sample-site main { padding:45px 22px; }
+}

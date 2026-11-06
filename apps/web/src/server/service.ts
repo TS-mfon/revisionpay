@@ -11,6 +11,7 @@ import {
 } from "@revisionpay/domain";
 import { sha256, token } from "@revisionpay/domain/crypto";
 import { DEFAULT_REQUIREMENTS, VARIANTS } from "@revisionpay/domain/fixtures";
+import { agreementTemplate } from "@revisionpay/domain/templates";
 import { configuration, readiness } from "./config";
 import { draft, freeze, audit } from "./model";
 import { mutate, type Store } from "./store";
@@ -53,7 +54,7 @@ export async function create(
   store: Store,
   who: Actor,
   input: unknown,
-  useTemplate = false,
+  useTemplate: boolean | string = false,
 ) {
   requireCondition(
     who.role === "seller",
@@ -67,6 +68,24 @@ export async function create(
     "New agreements are temporarily paused.",
     503,
   );
+  const template =
+    typeof useTemplate === "string"
+      ? agreementTemplate(useTemplate)
+      : undefined;
+  if (typeof useTemplate === "string") {
+    requireCondition(
+      template,
+      "TEMPLATE_NOT_FOUND",
+      "Choose one of the available agreement templates.",
+      404,
+    );
+    requireCondition(
+      who.kind !== "demo" && configuration().mode !== "live",
+      "SANDBOX_ONLY",
+      "These test agreements are available in the sandbox workspace.",
+      403,
+    );
+  }
   const existing = await store.listAgreements(who.tenantId);
   requireCondition(
     existing.filter((a) => !["CANCELED", "CLOSED"].includes(a.state)).length <
@@ -86,28 +105,42 @@ export async function create(
   const id = randomUUID();
   const demo = who.kind === "demo";
   const data = CreateAgreementSchema.parse(
-    demo || useTemplate
+    template
       ? {
-          title: "Northstar pricing page revision",
-          clientName: "Northstar Studio",
-          amountMinor: 18000,
-          sourceUrl: configuration().appUrl + "/demo-site/" + id,
-          requirements: DEFAULT_REQUIREMENTS,
+          title: template.name,
+          clientName: template.clientName,
+          amountMinor: template.amountMinor,
+          sourceUrl: configuration().appUrl + "/test-site/" + id,
+          requirements: structuredClone(template.requirements),
         }
-      : input,
+      : demo || useTemplate
+        ? {
+            title: "Northstar pricing page revision",
+            clientName: "Northstar Studio",
+            amountMinor: 18000,
+            sourceUrl: configuration().appUrl + "/demo-site/" + id,
+            requirements: DEFAULT_REQUIREMENTS,
+          }
+        : input,
   );
   if (!demo) {
     const url = new URL(data.sourceUrl);
+    const localTestPage =
+      template &&
+      configuration().mode === "demo" &&
+      !process.env.VERCEL &&
+      !process.env.NETLIFY &&
+      ["localhost", "127.0.0.1"].includes(url.hostname) &&
+      url.origin === new URL(configuration().appUrl).origin;
     requireCondition(
-      url.protocol === "https:" &&
+      (localTestPage || (url.protocol === "https:" && !url.port)) &&
         !url.username &&
         !url.password &&
-        !url.hash &&
-        !url.port,
+        !url.hash,
       "SOURCE_NOT_ALLOWED",
       "Enter a public HTTPS page without a password, port or fragment.",
     );
-    if (who.kind === "seller")
+    if (who.kind === "seller" && !template)
       requireCondition(
         data.clientEmail,
         "EMAIL_REQUIRED",
@@ -117,15 +150,18 @@ export async function create(
   const a = draft(
     data,
     who.tenantId,
-    demo
-      ? "demo"
-      : configuration().mode === "live" ||
-          (who.kind === "seller" && configuration().mode !== "sandbox")
-        ? "live"
-        : "sandbox",
+    template
+      ? "sandbox"
+      : demo
+        ? "demo"
+        : configuration().mode === "live" ||
+            (who.kind === "seller" && configuration().mode !== "sandbox")
+          ? "live"
+          : "sandbox",
     id,
   );
   a.termsVersion = "2";
+  a.testTemplateId = template?.id;
   a.draftRevision = 0;
   a.sellerName = who.name || (demo ? "Alex Morgan" : "Your freelancer");
   a.sellerEmail = who.email;
@@ -273,15 +309,22 @@ export async function updateDraft(
   input: unknown,
   version: number,
 ) {
-  await allowed(store, who, id, "seller");
+  const before = await allowed(store, who, id, "seller");
   const data = CreateAgreementSchema.parse(input);
   const url = new URL(data.sourceUrl);
+  const localTestPage =
+    before.testTemplateId &&
+    agreementTemplate(before.testTemplateId) &&
+    configuration().mode === "demo" &&
+    !process.env.VERCEL &&
+    !process.env.NETLIFY &&
+    ["localhost", "127.0.0.1"].includes(url.hostname) &&
+    data.sourceUrl === configuration().appUrl + "/test-site/" + id;
   requireCondition(
-    url.protocol === "https:" &&
+    (localTestPage || (url.protocol === "https:" && !url.port)) &&
       !url.username &&
       !url.password &&
-      !url.hash &&
-      !url.port,
+      !url.hash,
     "SOURCE_NOT_ALLOWED",
     "Enter a public HTTPS page.",
   );
@@ -527,13 +570,32 @@ export async function setVariant(
   variant: DemoVariant,
 ) {
   const a = await allowed(store, who, id, "seller");
+  const testPage =
+    a.mode === "sandbox" &&
+    Boolean(a.testTemplateId && agreementTemplate(a.testTemplateId)) &&
+    a.sourceUrl === configuration().appUrl + "/test-site/" + a.id;
   requireCondition(
-    a.sourceUrl === configuration().appUrl + "/demo-site/" + a.id &&
+    (a.sourceUrl === configuration().appUrl + "/demo-site/" + a.id ||
+      testPage) &&
       VARIANTS.some((v) => v.id === variant),
     "DEMO_PAGE_ONLY",
     "The page editor is only available for the project-owned example page.",
   );
+  if (testPage)
+    requireCondition(
+      a.payment.status === "AUTHORIZED" &&
+        !a.cancelRequestedAt &&
+        ["incomplete", "corrected"].includes(variant),
+      "TEST_PAGE_NOT_READY",
+      "Authorize the sandbox agreement before publishing a test revision.",
+    );
   return mutate(store, id, (x) => {
+    if (testPage)
+      requireCondition(
+        x.payment.status === "AUTHORIZED" && !x.cancelRequestedAt,
+        "TEST_PAGE_NOT_READY",
+        "This test page cannot change after payment collection starts.",
+      );
     requireCondition(
       x.state !== "CLOSED" && x.state !== "CANCELED",
       "AGREEMENT_CLOSED",

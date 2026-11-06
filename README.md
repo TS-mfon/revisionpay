@@ -48,6 +48,22 @@ The default `REVISIONPAY_MODE=demo` uses a local file under `.local/`. For local
 Demo and real sessions are independent. Demo records never become real charges.
 The example's **$29/month product price** is separate from its **$180 revision fee**.
 
+### Workspace test templates
+
+The sandbox workspace includes five **Use template** cards: pricing/trial copy
+($180), portfolio contact ($120), delivery/returns ($150), webinar signup ($95),
+and restaurant bookings ($85). One click saves a private draft with three
+requirements and its own hosted sample page. No invitation or payment is created
+until the normal review and consent steps.
+
+Choose **Send to client** after the page capture completes, then open the private
+invitation in another browser or a private window to test the client flow with a
+PayPal sandbox personal account. After authorization, the seller can publish a
+completed sample revision or a version with one mistake and run the real page
+capture and advisory checks. Client approval is still required to collect the fee.
+Test templates cannot be created in live mode. Client email is optional for these
+drafts because private invitation links work without an email sender.
+
 ## Connect real sandbox services
 
 Copy the settings in [.env.example](.env.example) into `.env.local` and supply:
