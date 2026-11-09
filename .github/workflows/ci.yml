@@ -23,6 +23,8 @@ jobs:
       - run: pnpm --filter @revisionpay/capture build
       - run: node --input-type=module -e "await import('./apps/capture/.vercel/output/functions/api/snapshot.func/runtime/index.mjs')"
       - run: pnpm test:e2e
+        env:
+          PLAYWRIGHT_PRODUCTION: "1"
       - uses: actions/upload-artifact@v4
         if: failure()
         with:

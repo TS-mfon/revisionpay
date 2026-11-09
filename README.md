@@ -155,10 +155,10 @@ pnpm exec playwright install --with-deps --no-shell chromium
 pnpm typecheck
 pnpm test
 pnpm build
-pnpm test:e2e
+PLAYWRIGHT_PRODUCTION=1 pnpm test:e2e
 ```
 
-The tests cover evidence hashing and bindings, finality and VM failures, buyer consent and holds, deadlines, competing capture attempts, lost provider responses, pending captures, tenant isolation, PayPal order validation, MongoDB compare-and-swap and lease recovery, and actual isolated Chromium capture. Playwright exercises the complete simulated flow through an uncharged failed revision, one completed payment, and a responsive receipt. Tests use a temporary MongoDB process and local data; they do not charge PayPal or send GenLayer transactions.
+The tests cover evidence hashing and bindings, finality and VM failures, buyer consent and holds, deadlines, competing capture attempts, lost provider responses, pending captures, tenant isolation, PayPal order validation, MongoDB compare-and-swap and lease recovery, and actual isolated Chromium capture. Playwright exercises the complete simulated flow, saved drafts, all five templates, payment setup and return, invitation handoffs, client sign-out, and outage recovery. CI runs browsers against the production build to avoid development reloads. Tests use a temporary MongoDB process and local data; they do not charge PayPal or send GenLayer transactions.
 
 Linux capture tests need Chromium runtime libraries; `playwright install --with-deps` installs them on supported systems. The production collector uses `@sparticuz/chromium` packaged for Vercel's runtime.
 

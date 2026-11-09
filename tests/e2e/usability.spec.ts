@@ -170,16 +170,20 @@ test("a failed workspace request offers recovery instead of an endless spinner",
   baseURL,
 }, info) => {
   const { a } = await seed(context, baseURL!, info);
-  await page.route(
-    "**/api/agreements",
-    (route) =>
-      route.fulfill({
-        status: 503,
-        json: { message: "Temporarily unavailable" },
-      }),
-    { times: 1 },
+  let serviceAvailable = false;
+  await page.route("**/api/agreements", (route) =>
+    serviceAvailable
+      ? route.continue()
+      : route.fulfill({
+          status: 503,
+          json: { message: "Temporarily unavailable" },
+        }),
   );
   await page.goto("/workspace");
+  await expect(
+    page.getByRole("button", { name: "Try again", exact: true }),
+  ).toBeVisible();
+  serviceAvailable = true;
   await page.getByRole("button", { name: "Try again", exact: true }).click();
   await expect(
     page.getByRole("link", { name: new RegExp(a.title) }),
