@@ -6,7 +6,6 @@ import {
   ArrowRight,
   ArrowUpRight,
   Check,
-  Copy,
   Download,
   Globe,
   LockKeyhole,
@@ -33,6 +32,9 @@ import {
   formatDate,
   agreementHref,
 } from "@/components/ui";
+import { AgreementProgress } from "@/components/agreement-progress";
+import { SandboxHelp } from "@/components/sandbox-help";
+import { ClientInvitation } from "@/components/client-invitation";
 
 export default function AgreementPage({
   params,
@@ -46,12 +48,18 @@ export default function AgreementPage({
     [busy, setBusy] = useState(""),
     [checked, setChecked] = useState(false),
     [link, setLink] = useState(""),
-    [copied, setCopied] = useState(false),
     [delivery, setDelivery] = useState(""),
     [note, setNote] = useState(""),
     [requesting, setRequesting] = useState(false),
     [canceling, setCanceling] = useState(false),
     [returnMessage, setReturnMessage] = useState("");
+  const [canSwitchView, setCanSwitchView] = useState(false),
+    [invitationRedeemed, setInvitationRedeemed] = useState(false),
+    [setup, setSetup] = useState<{
+      connected: boolean;
+      emailAvailable: boolean;
+      liveAvailable: boolean;
+    }>();
   const [testVersion, setTestVersion] = useState<"incomplete" | "corrected">(
     "corrected",
   );
@@ -62,6 +70,9 @@ export default function AgreementPage({
     setA(d.agreement);
     latest.current = d.agreement;
     setWho(d.actor);
+    setCanSwitchView(d.canSwitchView || false);
+    setInvitationRedeemed(Boolean(d.agreement.invitation?.redeemed));
+    setSetup(d.setup);
     return d;
   }, [id]);
   useEffect(() => {
@@ -203,6 +214,15 @@ export default function AgreementPage({
           <section className="welcome-panel">
             <h1>Return to your agreement</h1>
             <ErrorBox message={error} />
+            <Button
+              className="secondary"
+              onClick={() => {
+                setError("");
+                void refresh().catch((e) => setError(e.message));
+              }}
+            >
+              Try loading again
+            </Button>
             <p>
               Sign in with the Google account matching the email your freelancer
               invited, or reopen your private invitation link.
@@ -287,19 +307,33 @@ export default function AgreementPage({
               Open page <ArrowUpRight size={16} />
             </a>
           </div>
-          {testPage && seller && !terminal && (
+          {!demo && a.terms?.schemaVersion !== "1" && (
+            <AgreementProgress
+              agreement={a}
+              seller={seller}
+              canSwitchView={canSwitchView}
+            />
+          )}
+          {testPage && seller && !terminal && !paid && (
             <div className="template-guide">
               <strong>Your test agreement is ready</strong>
               <p>
                 {a.state === "DRAFT"
-                  ? "We’ve filled in a sample client, fee and checklist. Once the page check finishes, choose Send to client and open the private invitation in another browser or a private window to test as the client."
-                  : "Use the invitation in another browser or a private window for client approval. After PayPal authorization, return here to publish a sample revision and check it."}
+                  ? "We’ve filled in a sample client, fee and checklist. Create the client link below, then choose Open client view to test. You can switch back to the freelancer view in this browser."
+                  : "After the client authorizes the test fee, switch to freelancer view to publish a sample revision. Then switch to client view to review it and approve the test payment."}
               </p>
               <p className="small-text">
-                This uses the connected PayPal sandbox and page checks. No email
-                is sent unless you add a tester’s email in Edit agreement.
+                This uses PayPal sandbox and real page checks. You still need a
+                Personal sandbox account to test client authorization.
               </p>
             </div>
+          )}
+          {link && seller && !demo && !invitationRedeemed && !terminal && (
+            <ClientInvitation
+              link={link}
+              delivery={delivery}
+              testPage={Boolean(testPage)}
+            />
           )}
           {legacy && (
             <div className="notice warning">
@@ -485,7 +519,11 @@ export default function AgreementPage({
             className={paid ? "completed-work" : "current-work"}
             open={!paid}
           >
-            <summary>View the approved work</summary>
+            <summary>
+              {paid
+                ? "View the approved work"
+                : "View the agreement and submitted work"}
+            </summary>
             <section className="agreement-document">
               <div className="section-top">
                 <div>
@@ -582,19 +620,19 @@ export default function AgreementPage({
             </section>
           </details>
           {!paid && !terminal && (
-            <section className="next-step">
+            <section className="next-step" id="next-step">
               {a.state === "DRAFT" ? (
                 <>
                   <p className="eyebrow">REVIEW BEFORE SENDING</p>
                   <h2>
                     {demo
                       ? "A shared starting point"
-                      : "Ready to send to your client?"}
+                      : "Review, then create your client’s link"}
                   </h2>
                   <p>
-                    The page, requirements and fee will be locked when you send.
-                    The client has a clear chance to review everything before
-                    authorizing payment.
+                    The page, requirements and fee will be locked when you
+                    create the link. The client has a clear chance to review
+                    everything before authorizing payment.
                   </p>
                   <div className="terms-note">
                     <strong>How the payment works</strong>
@@ -631,9 +669,39 @@ export default function AgreementPage({
                       <Loading message="Checking that this page can be captured…" />
                     )}
                   </div>
+                  {!demo && setup && !setup.connected && (
+                    <div className="notice warning">
+                      <div>
+                        <strong>First, connect your PayPal account</strong>
+                        <p>
+                          Your draft is saved. Connect your{" "}
+                          {a.mode === "sandbox"
+                            ? "sandbox Business"
+                            : "Business"}{" "}
+                          account, then return to share this agreement.
+                        </p>
+                        <Link
+                          className="button"
+                          href={
+                            "/settings?returnTo=" +
+                            encodeURIComponent(agreementHref(a))
+                          }
+                        >
+                          Connect PayPal and return →
+                        </Link>
+                      </div>
+                    </div>
+                  )}
+                  {!demo && setup && !setup.liveAvailable && (
+                    <ErrorBox message="Live payments are not enabled. You can save this draft, but it cannot be shared for payment yet." />
+                  )}
                   <div className="action-row">
                     <Button
-                      disabled={Boolean(busy) || a.baselineStatus !== "READY"}
+                      disabled={
+                        Boolean(busy) ||
+                        a.baselineStatus !== "READY" ||
+                        (!demo && (!setup?.connected || !setup.liveAvailable))
+                      }
                       busy={busy === "freeze"}
                       onClick={() =>
                         action("freeze", {
@@ -641,7 +709,9 @@ export default function AgreementPage({
                         })
                       }
                     >
-                      {demo ? "Continue to client review" : "Send to client"}
+                      {demo
+                        ? "Continue to client review"
+                        : "Create client link"}
                       <ArrowRight size={18} />
                     </Button>
                     {!demo && (
@@ -652,12 +722,27 @@ export default function AgreementPage({
                         >
                           Edit agreement
                         </Link>
-                        <Link className="text-link" href="/settings">
+                        <Link
+                          className="text-link"
+                          href={
+                            "/settings?returnTo=" +
+                            encodeURIComponent(agreementHref(a))
+                          }
+                        >
                           Payment setup
                         </Link>
                       </>
                     )}
                   </div>
+                  {!demo && (
+                    <p className="small-text">
+                      {setup?.emailAvailable && a.clientEmail
+                        ? "We’ll also queue an invitation email for " +
+                          a.clientEmail +
+                          "."
+                        : "You’ll copy and share a private link. No email will be sent automatically."}
+                    </p>
+                  )}
                 </>
               ) : a.state === "AWAITING_BUYER" ? (
                 seller ? (
@@ -667,18 +752,24 @@ export default function AgreementPage({
                       Share the private invitation so {a.clientName} can review
                       the agreement and authorize {amount}.
                     </p>
-                    {!a.invitation?.redeemedAt && (
-                      <Button
-                        className="secondary"
-                        busy={busy === "invite"}
-                        onClick={() => action("invite")}
-                      >
-                        Send invitation again
-                      </Button>
-                    )}
+                    {!invitationRedeemed &&
+                      a.payment.status === "NONE" &&
+                      !link && (
+                        <Button
+                          className="secondary"
+                          busy={busy === "invite"}
+                          onClick={() => action("invite")}
+                        >
+                          Create a fresh invitation link
+                        </Button>
+                      )}
                     <p className="small-text">
-                      Clients who already opened their invitation can return
-                      using their email address.
+                      {invitationRedeemed
+                        ? "Your client has opened the invitation. They can return to the agreement in that browser" +
+                          (a.clientEmail
+                            ? ", or sign in with the Google account matching the invited email."
+                            : ". Keep that browser’s agreement address; no email recovery is set up for this test.")
+                        : "If you reload before copying the link, create a fresh one here. The previous unused link will stop working."}
                     </p>
                   </>
                 ) : (
@@ -716,6 +807,7 @@ export default function AgreementPage({
                         payment conditions above.
                       </span>
                     </label>
+                    {a.mode === "sandbox" && <SandboxHelp />}
                     <Button
                       disabled={!checked || Boolean(busy) || pending}
                       busy={Boolean(busy)}
@@ -749,7 +841,11 @@ export default function AgreementPage({
                 <>
                   <h2>
                     {s
-                      ? "Send the updated revision"
+                      ? a.state === "REVIEW_HOLD"
+                        ? "Make the requested changes"
+                        : s.state === "FAILED"
+                          ? "Try submitting the page again"
+                          : "Your submitted revision"
                       : "Ready when your changes are published"}
                   </h2>
                   <p>
@@ -761,6 +857,13 @@ export default function AgreementPage({
                   )}
                   {canSubmit ? (
                     <>
+                      {s?.state === "READY" && a.state !== "REVIEW_HOLD" && (
+                        <p>
+                          Your client can review the captured work now. Submit
+                          another version only if you have changed the page;
+                          this uses another submission.
+                        </p>
+                      )}
                       {testPage && (
                         <label>
                           Test revision to publish
@@ -812,11 +915,14 @@ export default function AgreementPage({
                     </>
                   ) : (
                     <p>
-                      {a.submissions.length >= 3
-                        ? "All three submissions have been used. Your client can still review the captured work before the payment deadline."
-                        : s?.state === "READY"
-                          ? "Waiting for your client to review the work. Return to this agreement to see their response."
-                          : "The current page check is still in progress. Your work is saved."}
+                      {Date.parse(a.payment.submissionDeadline || "") <=
+                      Date.now()
+                        ? "The deadline for new submissions has passed. Your client can still review already captured work before the approval deadline."
+                        : a.submissions.length >= 3
+                          ? "All three submissions have been used. Your client can still review the captured work before the payment deadline."
+                          : s?.state === "READY"
+                            ? "Waiting for your client to review the work. Return to this agreement to see their response."
+                            : "The current page check is still in progress. Your work is saved."}
                     </p>
                   )}
                 </>
@@ -935,42 +1041,6 @@ export default function AgreementPage({
               )}
             </section>
           )}
-          {link && !demo && (
-            <section className="share-panel">
-              <h2>Invitation ready</h2>
-              <p>
-                {delivery === "QUEUED"
-                  ? "The invitation email is queued. You can also share this private link."
-                  : delivery === "UNAVAILABLE"
-                    ? "Email isn't available yet. Share this private link with your client."
-                    : "Share this private link with your client."}
-              </p>
-              <label>
-                Private invitation link
-                <input
-                  readOnly
-                  value={link}
-                  onFocus={(e) => e.target.select()}
-                />
-              </label>
-              <Button
-                className="secondary"
-                onClick={async () => {
-                  try {
-                    await navigator.clipboard.writeText(link);
-                    setCopied(true);
-                  } catch {
-                    setError(
-                      "Select the invitation link and copy it manually.",
-                    );
-                  }
-                }}
-              >
-                {copied ? <Check size={17} /> : <Copy size={17} />}{" "}
-                {copied ? "Copied" : "Copy invitation"}
-              </Button>
-            </section>
-          )}
           <details className="record-details">
             <summary>Agreement history and technical record</summary>
             <p>
@@ -1039,7 +1109,11 @@ export default function AgreementPage({
           {(paid || terminal) && seller && !demo && (
             <Link
               className="button secondary"
-              href={"/agreements/new?copy=" + id}
+              href={
+                a.testTemplateId
+                  ? "/workspace#templates"
+                  : "/agreements/new?copy=" + id
+              }
             >
               Create another revision <ArrowRight size={18} />
             </Link>

@@ -217,6 +217,72 @@ it("saved draft edits reject stale tabs and invalidate captures when the URL cha
     /another tab/,
   );
 });
+
+it("a freelancer can return from their own invitation without granting a client seller access", async () => {
+  vi.stubEnv("MONGODB_URI", "");
+  const store = new LocalStore();
+  const a = agreement();
+  a.tenantId = "owner:view-test";
+  a.mode = "sandbox";
+  await store.createAgreement(a);
+  const owner = await issueSession(store, {
+    tenantId: a.tenantId,
+    kind: "owner",
+    role: "seller",
+  });
+  const client = await issueSession(store, {
+    tenantId: a.tenantId,
+    kind: "buyer",
+    role: "buyer",
+    agreementId: a.id,
+  });
+  const cookies = [owner.cookie, client.cookie]
+    .map((c) => c.split(";")[0])
+    .join("; ");
+  const url = "https://app.example/api/agreements/" + a.id;
+  expect(
+    (await actor(new Request(url, { headers: { cookie: cookies } }), store))
+      ?.role,
+  ).toBe("buyer");
+  const freelancer = await actor(
+    new Request(url, {
+      headers: { cookie: cookies, "X-RevisionPay-View": "freelancer" },
+    }),
+    store,
+  );
+  expect(freelancer?.role).toBe("seller");
+  await expect(
+    allowed(store, freelancer!, a.id, "seller"),
+  ).resolves.toBeDefined();
+  expect(
+    await actor(
+      new Request(url, {
+        headers: {
+          cookie: client.cookie.split(";")[0],
+          "X-RevisionPay-View": "freelancer",
+        },
+      }),
+      store,
+    ),
+  ).toBeUndefined();
+  const stranger = await issueSession(store, {
+    tenantId: "owner:someone-else",
+    kind: "owner",
+    role: "seller",
+  });
+  const other = await actor(
+    new Request(url, {
+      headers: {
+        cookie: stranger.cookie.split(";")[0],
+        "X-RevisionPay-View": "freelancer",
+      },
+    }),
+    store,
+  );
+  await expect(allowed(store, other!, a.id, "seller")).rejects.toThrow(
+    /not found/i,
+  );
+});
 it("requesting changes withdraws prior acceptance before capture starts", async () => {
   const a = clientAgreement(),
     s = revision(a),

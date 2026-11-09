@@ -90,7 +90,7 @@ test("guided revision requires client approval and produces one receipt", async 
     path: "test-results/receipt-mobile.png",
     fullPage: true,
   });
-  await page.getByRole("link", { name: "Real workspace", exact: true }).click();
+  await page.getByRole("link", { name: "Workspace", exact: true }).click();
   await expect(
     page.getByRole("heading", { name: "A clear agreement starts here." }),
   ).toBeVisible();

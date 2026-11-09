@@ -12,6 +12,8 @@ import {
   ErrorBox,
   Status,
   agreementHref,
+  Button,
+  RetryPanel,
 } from "@/components/ui";
 export default function Workspace() {
   const { who, error: authError } = useMe(),
@@ -19,16 +21,24 @@ export default function Workspace() {
     [error, setError] = useState(""),
     [filter, setFilter] = useState("All"),
     [query, setQuery] = useState(""),
-    [profile, setProfile] = useState<any>();
+    [profile, setProfile] = useState<any>(),
+    [profileError, setProfileError] = useState("");
+  async function loadProfile() {
+    try {
+      setProfile(await api("profile"));
+      setProfileError("");
+    } catch {
+      setProfileError(
+        "Payment setup could not be checked. You can still open your saved agreements.",
+      );
+    }
+  }
   useEffect(() => {
     if (who) {
       void api("agreements")
         .then((d) => setAgreements(d.agreements))
         .catch((e) => setError(e.message));
-      if (who.role === "seller")
-        void api("profile")
-          .then(setProfile)
-          .catch(() => {});
+      if (who.role === "seller") void loadProfile();
     }
   }, [who]);
   const visible = (agreements || []).filter(
@@ -42,13 +52,16 @@ export default function Workspace() {
     <Shell who={who}>
       <div className="page-heading">
         <div>
-          <p className="eyebrow">YOUR REAL WORKSPACE</p>
+          <p className="eyebrow">YOUR WORKSPACE</p>
           <h1>
             {who?.name
               ? "Your next step, " + who.name.split(" ")[0] + "."
               : "Your agreements"}
           </h1>
-          <p>See what needs your attention and what happens next.</p>
+          <p>
+            Agree on website changes, share them with your client, and get paid
+            after approval.
+          </p>
         </div>
         {who?.role === "seller" && (
           <Link className="button" href="/agreements/new">
@@ -74,41 +87,89 @@ export default function Workspace() {
           </Link>
         </section>
       ) : !agreements ? (
-        <Loading />
+        error || authError ? (
+          <RetryPanel onRetry={() => location.reload()} />
+        ) : (
+          <Loading />
+        )
       ) : (
         <>
-          {profile?.merchant?.status !== "READY" && who?.role === "seller" && (
-            <div className="onboarding-strip">
+          {who?.role === "seller" && (
+            <details className="workspace-start" open={agreements.length === 0}>
+              <summary>
+                New here? Here’s how to finish your first agreement
+              </summary>
+              <p>
+                Start with a ready-made test agreement or add your own page. You
+                are the freelancer; your client reviews the work and decides
+                when to pay.
+              </p>
+              <ol>
+                <li>
+                  <strong>Create a draft.</strong> Choose a page, 3–5 changes
+                  and a fixed fee.
+                </li>
+                <li>
+                  <strong>Share the client link.</strong> Connect PayPal first.
+                  Your client reviews the agreement and authorizes the fee
+                  without paying yet.
+                </li>
+                <li>
+                  <strong>Submit the updated page.</strong> Publish the changes,
+                  then return here to check them.
+                </li>
+                <li>
+                  <strong>Your client approves.</strong> They review the work
+                  and approve payment, or ask for changes.
+                </li>
+              </ol>
+              {profile?.readiness?.mode !== "live" && (
+                <a className="text-link" href="#templates">
+                  Choose a ready-made test agreement ↓
+                </a>
+              )}
+            </details>
+          )}
+          {profile?.readiness?.mode !== "live" && profile && (
+            <div className="notice info">
               <div>
-                <strong>Set up once. Keep every revision moving.</strong>
+                <strong>Connected PayPal testing · no real money</strong>
                 <p>
-                  Create a draft now. Connect PayPal before sending it to your
-                  client.
+                  This workspace saves real agreements and uses PayPal sandbox
+                  accounts. Live payments are not enabled.
                 </p>
               </div>
-              <Link className="button secondary" href="/settings">
-                Set up payments <ArrowRight size={16} />
-              </Link>
             </div>
           )}
-          {who?.role === "seller" && profile?.readiness?.mode !== "live" && (
-            <AgreementTemplates />
+          {profileError && (
+            <div className="notice warning">
+              <p>{profileError}</p>
+              <Button className="secondary" onClick={loadProfile}>
+                Check setup again
+              </Button>
+            </div>
           )}
+          {profile &&
+            profile.merchant?.status !== "READY" &&
+            who?.role === "seller" && (
+              <div className="onboarding-strip">
+                <div>
+                  <strong>Connect PayPal before sharing with a client</strong>
+                  <p>
+                    Create a draft now. Connect PayPal before sending it to your
+                    client.
+                  </p>
+                </div>
+                <Link className="button secondary" href="/settings">
+                  Set up payments <ArrowRight size={16} />
+                </Link>
+              </div>
+            )}
           {agreements.length === 0 ? (
-            <section className="welcome-panel">
-              <span className="welcome-number">01</span>
-              <h2>What needs to change?</h2>
-              <p>
-                Start with a page link, a short checklist and your fee. We’ll
-                turn them into an agreement your client can review.
-              </p>
-              <Link className="button" href="/agreements/new">
-                Create your first revision <ArrowRight size={18} />
-              </Link>
-              <p className="small-text">
-                Your draft stays private until you send it.
-              </p>
-            </section>
+            <p>
+              No agreements yet. Pick a template below, or choose New revision
+              to use your own page.
+            </p>
           ) : (
             <section className="agreement-list">
               <div className="list-toolbar">
@@ -139,7 +200,11 @@ export default function Workspace() {
               {visible.map((a) => (
                 <Link
                   className="revision-row"
-                  href={agreementHref(a)}
+                  href={
+                    who?.role === "buyer"
+                      ? "/agreements/" + a.id
+                      : agreementHref(a)
+                  }
                   key={a.id}
                 >
                   <span className="row-avatar">{a.clientName[0]}</span>
@@ -165,6 +230,11 @@ export default function Workspace() {
                 </div>
               )}
             </section>
+          )}
+          {who?.role === "seller" && profile?.readiness?.mode !== "live" && (
+            <div id="templates">
+              <AgreementTemplates />
+            </div>
           )}
         </>
       )}

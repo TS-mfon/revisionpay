@@ -6,7 +6,7 @@
 }
 :root {
   --ink: #20312d;
-  --muted: #72807b;
+  --muted: #586760;
   --line: #e5e9e3;
   --paper: #f7f8f4;
   --green: #d9f389;
@@ -4045,3 +4045,33 @@ blockquote { margin:14px 0 20px; padding:12px 20px; border-left:3px solid #d5b16
   .sample-site header { align-items:flex-start; flex-direction:column; gap:8px; }
   .sample-site main { padding:45px 22px; }
 }
+
+/* First-use guidance stays close to the action it explains. */
+.workspace-start,.agreement-progress { background:#fff; border:1px solid #cbdabb; border-radius:12px; padding:24px; margin:0 0 24px; }
+.workspace-start summary,.sandbox-help summary { cursor:pointer; font-weight:650; font-size:16px; color:var(--ink); }
+.workspace-start[open] summary { margin-bottom:14px; }
+.workspace-start ol,.sandbox-help ol { padding-left:23px; }
+.workspace-start li,.sandbox-help li { margin:10px 0; color:#43564b; }
+.workspace-start p,.agreement-progress p { margin:10px 0; max-width:850px; }
+.view-context { display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:12px; margin-bottom:20px; }
+.agreement-steps { list-style:none; display:grid; grid-template-columns:repeat(4,1fr); gap:12px; padding:0; margin:0 0 24px; }
+.agreement-steps li { display:flex; align-items:center; gap:9px; font-size:13px; line-height:1.4; color:#617067; padding:12px 0; border-bottom:3px solid #e6ebe2; }
+.agreement-steps li>span { width:25px; height:25px; flex-shrink:0; display:grid; place-items:center; border:1px solid #cbd6c2; border-radius:50%; }
+.agreement-steps li[aria-current=step] { color:#21412e; font-weight:700; border-color:#466f31; }
+.agreement-steps li[aria-current=step]>span,.agreement-steps li.done>span { background:#e3f3c2; border-color:#9bb980; }
+.agreement-steps li.done { border-color:#abc78f; }
+.agreement-progress>strong { font-size:18px; }
+.sandbox-help { margin:18px 0; padding:18px; border:1px solid #d4dfca; border-radius:9px; background:#f7faef; }
+.sandbox-help[open] summary { margin-bottom:13px; }
+.sandbox-help p,.sandbox-help li { font-size:14px; line-height:1.65; }
+.sandbox-help a { text-decoration:underline; text-underline-offset:3px; }
+#next-step,#templates,#client-invitation { scroll-margin-top:30px; }
+#templates { margin-top:32px; }
+@media(max-width:600px) {
+  .agreement-steps { grid-template-columns:repeat(2,1fr); gap:8px 14px; }
+  .workspace-start,.agreement-progress { padding:20px 18px; }
+  .view-context { align-items:flex-start; flex-direction:column; }
+  .sandbox-help { padding:15px; }
+}
+@media(prefers-reduced-motion:reduce) { html { scroll-behavior:auto; } }
+@media print { .agreement-progress,.sandbox-help { display:none!important; } }

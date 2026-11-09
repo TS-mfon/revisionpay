@@ -332,8 +332,12 @@ async function route(
             : undefined,
       });
     }
-    if (key === "merchant/connect" && post)
-      return json(await connectMerchant(store, who));
+    if (key === "merchant/connect" && post) {
+      const data = z
+        .object({ returnTo: z.string().max(500).optional() })
+        .parse(await body(request));
+      return json(await connectMerchant(store, who, data.returnTo));
+    }
     if (key === "merchant/refresh" && post)
       return json({ merchant: await refreshMerchant(store, who) });
     if (key === "demo/role" && post) {
@@ -387,11 +391,60 @@ async function route(
       const id = z.string().uuid().parse(path[1]);
       const action = path[2];
       const a = await service.allowed(store, who, id);
+      if (action === "logout" && post) {
+        requireCondition(
+          who.kind === "buyer",
+          "CLIENT_REQUIRED",
+          "Open the client view before closing it.",
+          403,
+        );
+        const cookie = sessionCookie("", 0, "rp_buyer_" + id);
+        if (who.email && configuration().mongoUri) {
+          const response = await (
+            await auth()
+          ).api.signOut({ headers: request.headers, asResponse: true });
+          response.headers.append("Set-Cookie", cookie);
+          response.headers.set("Cache-Control", "private, no-store");
+          return response;
+        }
+        return json({ signedOut: true }, 200, { "Set-Cookie": cookie });
+      }
       if (!action && request.method === "GET") {
+        // A view preference only selects an existing session. It grants no role.
+        const otherHeaders = new Headers(request.headers);
+        if (who.role === "buyer")
+          otherHeaders.set("X-RevisionPay-View", "freelancer");
+        else otherHeaders.delete("X-RevisionPay-View");
+        const other =
+          a.mode === "demo"
+            ? undefined
+            : await actor(
+                new Request(request.url, { headers: otherHeaders }),
+                store,
+              );
+        const merchant =
+          who.role === "seller" && a.mode !== "demo"
+            ? await merchantStatus(store, who)
+            : undefined;
         return json({
           agreement: publicAgreement(a),
           actor: who,
           nextAction: nextAction(a, who.role),
+          canSwitchView: Boolean(
+            other &&
+              other.role !== who.role &&
+              other.tenantId === a.tenantId &&
+              (other.role === "seller" || other.agreementId === a.id),
+          ),
+          setup: merchant
+            ? {
+                connected:
+                  merchant.status === "READY" &&
+                  merchant.environment === a.mode,
+                emailAvailable: readiness().emailAuth,
+                liveAvailable: a.mode !== "live" || readiness().livePayments,
+              }
+            : undefined,
         });
       }
       if (action === "receipt" && request.method === "GET")
@@ -457,9 +510,9 @@ async function route(
           z.number().int().nonnegative().parse(data.draftRevision),
         );
       else if (action === "invite") {
-        const invitationUrl = await service.invite(store, who, id);
+        const invitation = await service.invite(store, who, id);
         kick(id);
-        return json({ invitationUrl });
+        return json(invitation);
       } else if (action === "consent")
         result = await service.consent(
           store,

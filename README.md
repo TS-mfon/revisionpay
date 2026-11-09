@@ -8,7 +8,7 @@ RevisionPay gives freelancers and clients a clear path through a short website
 revision: agree on 3–5 changes, authorize one fee, submit the updated public page,
 then let the **client approve the finished work before payment is collected**.
 
-The site now has a **Real workspace / Demo** switch, saved drafts, a focused client
+The site now has a **Workspace / Demo** switch, saved drafts, a focused client
 review page, readable receipts and a guided example that does not require manual
 role switching. The real workspace supports connected PayPal sandbox APIs for the
 hackathon. Google sign-in saves each user's workspace. Live payments and self-service
@@ -56,8 +56,8 @@ and restaurant bookings ($85). One click saves a private draft with three
 requirements and its own hosted sample page. No invitation or payment is created
 until the normal review and consent steps.
 
-Choose **Send to client** after the page capture completes, then open the private
-invitation in another browser or a private window to test the client flow with a
+Choose **Create client link** after the page capture completes and PayPal is connected.
+Copy it for a client, or choose **Open client view to test** in the same browser with a
 PayPal sandbox personal account. After authorization, the seller can publish a
 completed sample revision or a version with one mistake and run the real page
 capture and advisory checks. Client approval is still required to collect the fee.

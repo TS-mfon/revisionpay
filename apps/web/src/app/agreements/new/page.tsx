@@ -3,7 +3,15 @@ import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { ArrowLeft, ArrowRight, Plus, X, LockKeyhole } from "lucide-react";
-import { api, Shell, useMe, Button, ErrorBox, Loading } from "@/components/ui";
+import {
+  api,
+  Shell,
+  useMe,
+  Button,
+  ErrorBox,
+  Loading,
+  RetryPanel,
+} from "@/components/ui";
 interface Form {
   title: string;
   clientName: string;
@@ -65,8 +73,12 @@ export default function Builder() {
           if (active) setForm(f);
           if (q.has("draft")) lastSaved.current = JSON.stringify(f);
         } else {
-          const cached = sessionStorage.getItem("revision-draft:" + who!.id);
-          if (cached && active) setForm({ ...empty, ...JSON.parse(cached) });
+          try {
+            const cached = sessionStorage.getItem("revision-draft:" + who!.id);
+            if (cached && active) setForm({ ...empty, ...JSON.parse(cached) });
+          } catch {
+            /* Saving to the workspace does not depend on browser storage. */
+          }
         }
       } catch (e) {
         if (active) setError((e as Error).message);
@@ -177,8 +189,12 @@ export default function Builder() {
     setError("");
     try {
       const savedId = await persist();
-      sessionStorage.removeItem("revision-draft:" + who?.id);
-      router.push("/agreements/" + savedId);
+      try {
+        sessionStorage.removeItem("revision-draft:" + who?.id);
+      } catch {
+        /* Already saved. */
+      }
+      router.push("/agreements/" + savedId + "?view=freelancer");
     } catch (e) {
       setError((e as Error).message);
       setBusy(false);
@@ -205,12 +221,16 @@ export default function Builder() {
       {who === null ? (
         <div className="welcome-panel">
           <h2>Sign in to save your revision.</h2>
-          <Link className="button" href="/login">
+          <Link className="button" href="/login?returnTo=%2Fagreements%2Fnew">
             Continue with Google
           </Link>
         </div>
       ) : !loaded ? (
-        <Loading />
+        authError ? (
+          <RetryPanel onRetry={() => location.reload()} />
+        ) : (
+          <Loading />
+        )
       ) : (
         <form onSubmit={review} className="revision-form">
           <section className="form-section">

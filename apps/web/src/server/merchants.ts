@@ -8,6 +8,7 @@ import { sha256 } from "@revisionpay/domain/crypto";
 import { configuration, readiness } from "./config";
 import { requestPayPal } from "./paypal";
 import type { Store } from "./store";
+import { safeReturnPath } from "../lib/navigation";
 
 export const merchantEnvironment = () =>
   configuration().mode === "sandbox" ? ("sandbox" as const) : ("live" as const);
@@ -39,7 +40,11 @@ export async function merchantStatus(
     }
   );
 }
-export async function connectMerchant(store: Store, who: Actor) {
+export async function connectMerchant(
+  store: Store,
+  who: Actor,
+  returnTo?: string,
+) {
   requireCondition(
     who.role === "seller" && who.kind !== "demo",
     "SELLER_REQUIRED",
@@ -73,7 +78,10 @@ export async function connectMerchant(store: Store, who: Actor) {
       products: ["EXPRESS_CHECKOUT"],
       legal_consents: [{ type: "SHARE_DATA_CONSENT", granted: true }],
       partner_config_override: {
-        return_url: configuration().appUrl + "/settings?paypal=connected",
+        return_url:
+          configuration().appUrl +
+          "/settings?paypal=connected&returnTo=" +
+          encodeURIComponent(safeReturnPath(returnTo)),
         return_url_description: "Return to RevisionPay",
       },
     },

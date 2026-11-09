@@ -24,11 +24,20 @@ export async function api<T = any>(path: string, data?: unknown): Promise<T> {
       !location.pathname.startsWith("/demo-site")
         ? { "X-RevisionPay-Space": "demo" }
         : {}),
+      ...(typeof location !== "undefined" &&
+      (location.pathname === "/agreements/new" ||
+        new URLSearchParams(location.search).get("view") === "freelancer")
+        ? { "X-RevisionPay-View": "freelancer" }
+        : {}),
     },
     ...(data === undefined ? {} : { body: JSON.stringify(data) }),
     cache: "no-store",
   });
-  const body = await response.json();
+  const body = await response.json().catch(() => null);
+  if (!body)
+    throw new Error(
+      "The server couldn't respond. Please try again in a moment.",
+    );
   if (!response.ok)
     throw new Error(
       body.message || "We couldn't complete that action. Please try again.",
@@ -36,7 +45,10 @@ export async function api<T = any>(path: string, data?: unknown): Promise<T> {
   return body;
 }
 export const agreementHref = (a: Pick<Agreement, "mode" | "id">) =>
-  (a.mode === "demo" ? "/demo" : "") + "/agreements/" + a.id;
+  (a.mode === "demo" ? "/demo" : "") +
+  "/agreements/" +
+  a.id +
+  (a.mode === "demo" ? "" : "?view=freelancer");
 export function Logo({ light = false }: { light?: boolean }) {
   return (
     <Link
@@ -107,6 +119,15 @@ export function Loading({
     </div>
   );
 }
+export function RetryPanel({ onRetry }: { onRetry: () => void }) {
+  return (
+    <section className="welcome-panel">
+      <h2>Let’s try that again.</h2>
+      <p>We couldn’t load this page. Your saved agreements are still there.</p>
+      <Button onClick={onRetry}>Try again</Button>
+    </section>
+  );
+}
 export function ShortHash({ value, label }: { value?: string; label: string }) {
   const [copied, setCopied] = useState(false);
   return (
@@ -152,7 +173,7 @@ export function ModeSwitch({ demo = false }: { demo?: boolean }) {
   return (
     <nav className="mode-switch" aria-label="Workspace mode">
       <Link href="/workspace" aria-current={!demo ? "page" : undefined}>
-        Real workspace
+        Workspace
       </Link>
       <Link href="/demo" aria-current={demo ? "page" : undefined}>
         Demo
@@ -195,7 +216,12 @@ export function Shell({
               aria-label="Sign out"
               onClick={async () => {
                 try {
-                  await api("logout", {});
+                  await api(
+                    who.kind === "buyer" && who.agreementId
+                      ? "agreements/" + who.agreementId + "/logout"
+                      : "logout",
+                    {},
+                  );
                   location.assign("/");
                 } catch (e) {
                   setError((e as Error).message);
@@ -248,7 +274,10 @@ export function useMe() {
     [error, setError] = useState("");
   const reload = () =>
     api("me")
-      .then((d) => setWho(d.actor))
+      .then((d) => {
+        setWho(d.actor);
+        setError("");
+      })
       .catch((e) => setError(e.message));
   useEffect(() => {
     void reload();

@@ -368,8 +368,8 @@ export async function invite(store: Store, who: Actor, id: string) {
     };
   });
   const url = configuration().appUrl + "/invite#" + raw;
-  await invitationMail(store, a, url);
-  return url;
+  const email = await invitationMail(store, a, url);
+  return { invitationUrl: url, email };
 }
 export async function consent(
   store: Store,

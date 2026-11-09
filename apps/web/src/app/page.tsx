@@ -41,7 +41,8 @@ export default function Home() {
               </Link>
             </div>
             <p className="hero-caption">
-              Start with a draft. No crypto wallet or payment required.
+              Start with a draft. No crypto wallet required. Payments currently
+              use PayPal test funds.
             </p>
           </div>
           <div

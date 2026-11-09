@@ -3,6 +3,7 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import { ArrowRight, Check, LockKeyhole } from "lucide-react";
 import { api, Logo, Button, ErrorBox, ModeSwitch } from "@/components/ui";
+import { safeReturnPath } from "@/lib/navigation";
 export default function Login() {
   const [ready, setReady] = useState<{
       googleAuth: boolean;
@@ -30,9 +31,7 @@ export default function Login() {
   function returnTo() {
     const value =
       new URLSearchParams(location.search).get("returnTo") || "/workspace";
-    return /^\/(workspace|settings|agreements\/[0-9a-f-]{36})$/.test(value)
-      ? value
-      : "/workspace";
+    return safeReturnPath(value);
   }
   async function google() {
     setBusy("google");
@@ -94,7 +93,7 @@ export default function Login() {
         <span className="auth-symbol">
           <LockKeyhole size={27} />
         </span>
-        <p className="eyebrow">YOUR REAL WORKSPACE</p>
+        <p className="eyebrow">SAVE YOUR AGREEMENTS</p>
         <h1>Let’s get your next revision moving.</h1>
         <p>
           Use your Google account to save agreements and return to your work. No

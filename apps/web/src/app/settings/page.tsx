@@ -10,7 +10,10 @@ import {
   ErrorBox,
   Loading,
   Badge,
+  RetryPanel,
 } from "@/components/ui";
+import { safeReturnPath } from "@/lib/navigation";
+import { SandboxHelp } from "@/components/sandbox-help";
 export default function Settings() {
   const { who, error: authError } = useMe(),
     [data, setData] = useState<any>(),
@@ -18,7 +21,12 @@ export default function Settings() {
     [error, setError] = useState(""),
     [busy, setBusy] = useState(""),
     [saved, setSaved] = useState(false),
-    [consent, setConsent] = useState(false);
+    [consent, setConsent] = useState(false),
+    [returnTo, setReturnTo] = useState("/workspace");
+  useEffect(() => {
+    const query = new URLSearchParams(location.search);
+    setReturnTo(safeReturnPath(query.get("returnTo")));
+  }, []);
   async function load() {
     const d = await api("profile");
     setData(d);
@@ -52,7 +60,7 @@ export default function Settings() {
         await api("profile/link-google", {});
         await load();
       } else if (action === "connect") {
-        const d = await api("merchant/connect", {});
+        const d = await api("merchant/connect", { returnTo });
         location.assign(d.url);
       } else {
         await api("merchant/refresh", {});
@@ -69,7 +77,14 @@ export default function Settings() {
       data &&
       new URLSearchParams(location.search).get("paypal") === "connected"
     ) {
-      history.replaceState(null, "", location.pathname);
+      history.replaceState(
+        null,
+        "",
+        location.pathname +
+          (returnTo !== "/workspace"
+            ? "?returnTo=" + encodeURIComponent(returnTo)
+            : ""),
+      );
       void run("refresh");
     }
   }, [Boolean(data)]);
@@ -84,13 +99,32 @@ export default function Settings() {
       </div>
       <ErrorBox message={error || authError} />
       {who === null ? (
-        <Link className="button" href="/login">
+        <Link className="button" href="/login?returnTo=%2Fsettings">
           Sign in to continue
         </Link>
       ) : !data ? (
-        <Loading />
+        error || authError ? (
+          <RetryPanel onRetry={() => location.reload()} />
+        ) : (
+          <Loading />
+        )
       ) : (
         <div className="settings-grid">
+          {returnTo !== "/workspace" && (
+            <div className="onboarding-strip">
+              <div>
+                <strong>
+                  {data.merchant.status === "READY"
+                    ? "PayPal is connected. Your agreement is ready to continue."
+                    : "Your agreement is saved while you set up payments."}
+                </strong>
+                <p>Return to the same draft whenever you’re ready.</p>
+              </div>
+              <Link className="button" href={returnTo}>
+                Back to your agreement →
+              </Link>
+            </div>
+          )}
           {data.ownerGoogle && data.readiness.googleAuth && (
             <section className="form-section">
               <h2>Google sign-in for this workspace</h2>
@@ -176,6 +210,7 @@ export default function Settings() {
                 ? "This workspace connects to PayPal sandbox for the hackathon. Use sandbox business and personal accounts; all payments use test funds."
                 : "Connect an eligible PayPal business account to receive client payments. Availability depends on your country and PayPal’s account checks."}
             </p>
+            {data.merchant.environment === "sandbox" && <SandboxHelp seller />}
             {data.merchant.legalName && (
               <p>
                 <strong>{data.merchant.legalName}</strong>
@@ -237,11 +272,20 @@ export default function Settings() {
           </section>
           <section className="onboarding-strip">
             <div>
-              <h2>Next: your first revision</h2>
-              <p>One public page, a short checklist and a fixed fee.</p>
+              <h2>
+                {returnTo !== "/workspace"
+                  ? "Continue your agreement"
+                  : "Next: choose your agreement"}
+              </h2>
+              <p>
+                Start with a ready-made test agreement, or use your own page.
+              </p>
             </div>
-            <Link className="button" href="/agreements/new">
-              Create a revision <ArrowRight size={18} />
+            <Link className="button" href={returnTo}>
+              {returnTo !== "/workspace"
+                ? "Back to your agreement"
+                : "Open your workspace"}{" "}
+              <ArrowRight size={18} />
             </Link>
           </section>
         </div>

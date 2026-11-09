@@ -200,12 +200,17 @@ export async function actor(
   store: Store,
 ): Promise<Actor | undefined> {
   const demo = request.headers.get("x-revisionpay-space") === "demo";
+  const freelancer =
+    !demo && request.headers.get("x-revisionpay-view") === "freelancer";
   const agreementId = new URL(request.url).pathname.match(
     /\/agreements\/([0-9a-f-]{36})(?:\/|$)/,
   )?.[1];
   const names = demo
     ? ["rp_demo", "rp_session"]
-    : [...(agreementId ? ["rp_buyer_" + agreementId] : []), "rp_session"];
+    : [
+        ...(agreementId && !freelancer ? ["rp_buyer_" + agreementId] : []),
+        "rp_session",
+      ];
   for (const name of names) {
     const raw = cookieToken(request, name);
     if (!raw) continue;
@@ -213,6 +218,7 @@ export async function actor(
     if (
       s &&
       Date.parse(s.expiresAt) > Date.now() &&
+      (!freelancer || s.role === "seller") &&
       (demo ? s.kind === "demo" : s.kind !== "demo")
     ) {
       let role = s.role;
@@ -273,7 +279,7 @@ export async function actor(
         name: session.user.name,
       };
   }
-  if (agreementId) {
+  if (agreementId && !freelancer) {
     const agreement = await store.getAgreement(agreementId);
     if (
       agreement?.clientEmail?.toLowerCase() ===
