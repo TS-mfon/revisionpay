@@ -216,6 +216,7 @@ export interface Payment {
   integration?: "DIRECT" | "PLATFORM";
   status: PaymentStatus;
   orderId?: string;
+  checkoutUnavailable?: boolean;
   authorizationId?: string;
   captureId?: string;
   payerId?: string;
@@ -537,6 +538,7 @@ export function assertCaptureEligible(
 export const MONEY_IN_FLIGHT: PaymentStatus[] = [
   "ORDER_CREATING",
   "AUTHORIZING",
+  "AUTH_PENDING",
   "CAPTURE_RESERVED",
   "CAPTURE_SUBMITTED",
   "PENDING",
@@ -610,6 +612,12 @@ export function displayStatus(a: Agreement): {
     };
   if (a.payment.status === "PAID") return { label: "Paid", tone: "green" };
   if (
+    a.state === "AWAITING_BUYER" &&
+    a.payment.status === "ORDER_CREATED" &&
+    a.payment.checkoutUnavailable
+  )
+    return { label: "Checkout unavailable", tone: "red" };
+  if (
     a.state === "CANCELED" ||
     ["VOIDED", "EXPIRED"].includes(a.payment.status)
   )
@@ -651,6 +659,18 @@ export function nextAction(a: Agreement, role: Role = "seller") {
   if (a.payment.status === "PAID")
     return { label: "View receipt", group: "Completed" };
   if (
+    a.state === "AWAITING_BUYER" &&
+    a.payment.status === "ORDER_CREATED" &&
+    a.payment.checkoutUnavailable
+  )
+    return {
+      label:
+        role === "seller"
+          ? "Start a fresh agreement"
+          : "Ask for a new agreement",
+      group: "Needs your action",
+    };
+  if (
     a.state === "CANCELED" ||
     ["VOIDED", "EXPIRED"].includes(a.payment.status)
   )
@@ -681,4 +701,47 @@ export function nextAction(a: Agreement, role: Role = "seller") {
     label: role === "seller" ? "Submit updated page" : "Waiting for the work",
     group: role === "seller" ? "Needs your action" : "Waiting",
   };
+}
+
+// Only already-requested work can advance in the background. Awaiting a client
+// decision is idle; observing an agreement never supplies consent or approval.
+export function hasPendingWork(a: Agreement, now = Date.now()): boolean {
+  if (MONEY_IN_FLIGHT.includes(a.payment.status)) return true;
+  if (
+    a.state === "CANCELED" ||
+    ["PAID", "VOIDED", "EXPIRED", "FAILED", "AUTH_DENIED"].includes(
+      a.payment.status,
+    )
+  )
+    return false;
+  if (a.state === "DRAFT") return a.baselineStatus === "QUEUED";
+  if (a.payment.status !== "AUTHORIZED") return false;
+  if (a.cancelRequestedAt || Date.parse(a.payment.captureDeadline || "") <= now)
+    return true;
+  const submission = currentSubmission(a);
+  if (submission?.state === "CAPTURING") return true;
+  if (!submission)
+    return (
+      a.termsVersion !== "2" &&
+      ["NONE", "DEPLOYING", "SUBMITTED"].includes(a.contract.state)
+    );
+  if (hasManualAcceptance(a) && a.state === "ACTIVE" && !a.reviewHoldAt)
+    return true;
+  if (["NONE", "DEPLOYING", "SUBMITTED"].includes(a.contract.state))
+    return true;
+  if (a.contract.state !== "READY" || submission.state !== "READY")
+    return false;
+  if (
+    ["QUEUED", "SUBMITTING", "SUBMITTED", "AWAITING_FINALITY"].includes(
+      submission.verification.status,
+    )
+  )
+    return true;
+  return (
+    a.terms?.settlementPolicy !== "BUYER_APPROVAL_REQUIRED" &&
+    a.mode !== "live" &&
+    a.state === "ACTIVE" &&
+    !a.reviewHoldAt &&
+    hasFinalPass(a)
+  );
 }

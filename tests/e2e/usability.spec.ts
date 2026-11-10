@@ -189,3 +189,82 @@ test("a failed workspace request offers recovery instead of an endless spinner",
     page.getByRole("link", { name: new RegExp(a.title) }),
   ).toBeVisible();
 });
+
+test("an open agreement advances pending work and leads to the next role after provider updates", async ({
+  page,
+  context,
+  request,
+  baseURL,
+}, info) => {
+  const { a, store, token } = await seed(context, baseURL!, info, true);
+  const { mutate } = await import("../../apps/web/src/server/store");
+  const { applyAuthorization } = await import(
+    "../../apps/web/src/server/workflow"
+  );
+  const { revision } = await import("../helpers");
+  const apiPath = "/api/agreements/" + a.id;
+  expect(
+    (
+      await request.post(apiPath + "/progress", {
+        data: {},
+        headers: { Origin: baseURL! },
+      })
+    ).status(),
+  ).toBe(401);
+  await page.goto("/invite#" + token);
+  await expect(
+    page.getByRole("region", { name: "Agreement progress" }),
+  ).toContainText("client");
+  await page.request.post(apiPath + "/consent", {
+    data: { digest: a.digest },
+    headers: { Origin: baseURL! },
+  });
+  // Local provider fixtures exercise the real screen/route handoffs. No test
+  // writes to a hosted database or authorizes a payment with PayPal.
+  await mutate(store, a.id, (current) =>
+    applyAuthorization(current, {
+      id: "test-authorization",
+      status: "CREATED",
+      at: new Date().toISOString(),
+      payerId: "test-client",
+    }),
+  );
+  await page
+    .getByRole("link", { name: "Continue as freelancer", exact: false })
+    .click();
+  await expect(
+    page.getByRole("region", { name: "Agreement progress" }),
+  ).toContainText("freelancer");
+  let progressRequests = 0;
+  page.on("request", (req) => {
+    if (req.url().endsWith(apiPath + "/progress") && req.method() === "POST")
+      progressRequests++;
+  });
+  await store.ensureJob(a.id, new Date(Date.now() + 3600000).toISOString());
+  await mutate(store, a.id, (current) => {
+    const s = revision(current, "corrected", false);
+    s.state = "CAPTURING";
+    s.evidence = undefined;
+  });
+  await expect
+    .poll(() => progressRequests, { timeout: 20000 })
+    .toBeGreaterThan(0);
+  // Progress must not bypass the future job time and run provider calls.
+  expect((await store.getAgreement(a.id))!.submissions[0].state).toBe(
+    "CAPTURING",
+  );
+  await mutate(store, a.id, (current) => {
+    current.submissions = [];
+    current.contract = { state: "READY", address: "0x" + "1".repeat(40) };
+    revision(current, "corrected");
+  });
+  await page
+    .getByRole("link", { name: "Continue as client", exact: false })
+    .click();
+  await expect(
+    page.getByRole("button", { name: "Approve and pay $180", exact: false }),
+  ).toBeVisible();
+  const saved = (await store.getAgreement(a.id))!;
+  expect(saved.payment.status).toBe("AUTHORIZED");
+  expect(saved.manualAcceptanceId).toBeUndefined();
+});

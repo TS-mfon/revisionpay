@@ -4061,6 +4061,8 @@ blockquote { margin:14px 0 20px; padding:12px 20px; border-left:3px solid #d5b16
 .agreement-steps li[aria-current=step]>span,.agreement-steps li.done>span { background:#e3f3c2; border-color:#9bb980; }
 .agreement-steps li.done { border-color:#abc78f; }
 .agreement-progress>strong { font-size:18px; }
+.flow-actions { margin-top:16px; }
+.flow-actions .button { max-width:100%; white-space:normal; text-align:center; }
 .sandbox-help { margin:18px 0; padding:18px; border:1px solid #d4dfca; border-radius:9px; background:#f7faef; }
 .sandbox-help[open] summary { margin-bottom:13px; }
 .sandbox-help p,.sandbox-help li { font-size:14px; line-height:1.65; }

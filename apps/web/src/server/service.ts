@@ -437,8 +437,18 @@ export async function checkout(store: Store, who: Actor, id: string) {
     );
   }
   const previous = await store.getValue<string>("approval:" + id);
-  if (a.payment.status === "ORDER_CREATED" && previous !== undefined)
+  if (a.payment.status === "ORDER_CREATED" && previous !== undefined) {
+    a = await refreshCheckout(store, who, id);
+    requireCondition(
+      !a.payment.checkoutUnavailable,
+      "CHECKOUT_UNAVAILABLE",
+      "This PayPal checkout is no longer available. Ask your freelancer for a new agreement.",
+      409,
+    );
+    if (a.payment.status !== "ORDER_CREATED")
+      return { mode: a.mode, status: a.payment.status };
     return { approvalUrl: previous, orderId: a.payment.orderId, mode: a.mode };
+  }
   a = await mutate(store, id, (x) => {
     requireCondition(
       x.state === "AWAITING_BUYER" && x.payment.status === "NONE",
@@ -474,6 +484,44 @@ export async function checkout(store: Store, who: Actor, id: string) {
       }
     });
     throw e;
+  }
+}
+export async function refreshCheckout(store: Store, who: Actor, id: string) {
+  const a = await allowed(store, who, id);
+  if (a.mode === "demo" || a.payment.status !== "ORDER_CREATED") return a;
+  try {
+    const receipt = await paypal.readAuthorization(a);
+    const saved = await mutate(store, id, (x) => {
+      if (
+        x.payment.status !== "ORDER_CREATED" ||
+        x.payment.orderId !== a.payment.orderId
+      )
+        return;
+      x.payment.checkoutUnavailable = undefined;
+      x.payment.error = undefined;
+      if (receipt) applyAuthorization(x, receipt);
+    });
+    if (receipt && saved.payment.authorizationId === receipt.id)
+      await store.ensureJob(id);
+    return saved;
+  } catch (error) {
+    if (
+      !(error instanceof Error) ||
+      !("code" in error) ||
+      error.code !== "PAYPAL_INVALID_RESOURCE_ID"
+    )
+      throw error;
+    return mutate(store, id, (x) => {
+      if (
+        x.payment.status !== "ORDER_CREATED" ||
+        x.payment.orderId !== a.payment.orderId
+      )
+        return;
+      // Preserve provider IDs: a missing order does not prove a void or payment.
+      x.payment.checkoutUnavailable = true;
+      x.payment.error =
+        "PayPal cannot find this checkout. Start a fresh agreement with a new client approval; this agreement stays in your history.";
+    });
   }
 }
 export async function authorize(store: Store, who: Actor, id: string) {

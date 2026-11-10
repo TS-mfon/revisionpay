@@ -61,6 +61,11 @@ Copy it for a client, or choose **Open client view to test** in the same browser
 PayPal sandbox personal account. After authorization, the seller can publish a
 completed sample revision or a version with one mistake and run the real page
 capture and advisory checks. Client approval is still required to collect the fee.
+Use **Continue as freelancer** after authorization and **Continue as client**
+after submission when testing both sides in the same browser. Pending captures,
+checks and payment confirmations advance while the agreement is open; the client
+still explicitly approves the final payment. An unavailable old PayPal checkout
+offers a fresh-agreement path and is never replaced with a payment automatically.
 Test templates cannot be created in live mode. Client email is optional for these
 drafts because private invitation links work without an email sender.
 
@@ -144,7 +149,7 @@ Use the application's stable production domain as `APP_URL` and as an allowed ca
 
 Each agreement has a durable MongoDB job. Requests use Next.js `after()` to perform a bounded step; refreshing the agreement advances due work. MongoDB leases prevent competing workers from owning the same job and preserve wakeups requested during an active lease.
 
-The included [GitHub Actions scheduler](.github/workflows/resume-jobs.yml) calls the authenticated worker endpoint every five minutes. Configure repository variable `REVISIONPAY_APP_URL` and secret `REVISIONPAY_CRON_SECRET`. Scheduled Actions can be delayed; payment deadlines are checked again at the moment of capture. The daily Vercel cron is a fallback compatible with Hobby. On Vercel Pro, change its schedule to `* * * * *` for faster unattended progress. This keeps the prototype deployable on the existing free account and leaves the agreed $50 ceiling available for optional upgrades.
+While an agreement is open, the browser asks the authenticated agreement worker to advance already-requested work. Job leases and saved retry times still apply; this never supplies client consent or authorizes a payment. The included [GitHub Actions scheduler](.github/workflows/resume-jobs.yml) resumes unattended work every five minutes when scheduled by GitHub. Configure repository variable `REVISIONPAY_APP_URL` and secret `REVISIONPAY_CRON_SECRET`. Scheduled Actions can be delayed; payment deadlines are checked again at the moment of capture. The daily Vercel cron is a fallback compatible with Hobby. On Vercel Pro, change its schedule to `* * * * *` for faster unattended progress. This keeps the prototype deployable on the existing free account and leaves the agreed $50 ceiling available for optional upgrades.
 
 The code permits at most two simultaneous workers, 20 new verifications daily by default, ten active seller agreements, and three submissions per agreement. `SETTLEMENT_PAUSED=true` blocks new collection; `NEW_JOBS_PAUSED=true` blocks new agreements and new verification sends. Reconciliation remains available.
 

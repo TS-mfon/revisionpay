@@ -53,6 +53,7 @@ export default function AgreementPage({
     [requesting, setRequesting] = useState(false),
     [canceling, setCanceling] = useState(false),
     [returnMessage, setReturnMessage] = useState("");
+  const [syncError, setSyncError] = useState("");
   const [canSwitchView, setCanSwitchView] = useState(false),
     [invitationRedeemed, setInvitationRedeemed] = useState(false),
     [setup, setSetup] = useState<{
@@ -64,7 +65,10 @@ export default function AgreementPage({
     "corrected",
   );
   const returned = useRef(false),
-    latest = useRef<Agreement | undefined>(undefined);
+    latest = useRef<Agreement | undefined>(undefined),
+    checkoutChecked = useRef(""),
+    lastProgress = useRef(0),
+    progressing = useRef(false);
   const refresh = useCallback(async () => {
     const d = await api("agreements/" + id);
     setA(d.agreement);
@@ -73,6 +77,41 @@ export default function AgreementPage({
     setCanSwitchView(d.canSwitchView || false);
     setInvitationRedeemed(Boolean(d.agreement.invitation?.redeemed));
     setSetup(d.setup);
+    if (
+      d.agreement.mode !== "demo" &&
+      d.agreement.payment.status === "ORDER_CREATED" &&
+      checkoutChecked.current !== id &&
+      new URLSearchParams(location.search).get("paypal") !== "approved"
+    ) {
+      checkoutChecked.current = id;
+      void api("agreements/" + id + "/checkout-status", {})
+        .then(() => setSyncError(""))
+        .catch(() => {
+          setSyncError(
+            "PayPal’s checkout status could not be checked. Try resuming approval to check again.",
+          );
+        });
+    }
+    if (
+      d.pendingWork &&
+      d.agreement.mode !== "demo" &&
+      !document.hidden &&
+      !progressing.current &&
+      Date.now() - lastProgress.current >= 4000
+    ) {
+      progressing.current = true;
+      lastProgress.current = Date.now();
+      void api("agreements/" + id + "/progress", {})
+        .then(() => setSyncError(""))
+        .catch(() =>
+          setSyncError(
+            "We couldn’t refresh the pending work. Your agreement is saved; we’ll try again while this page is open.",
+          ),
+        )
+        .finally(() => {
+          progressing.current = false;
+        });
+    }
     return d;
   }, [id]);
   useEffect(() => {
@@ -110,6 +149,7 @@ export default function AgreementPage({
         setDelivery(d.email || "");
       }
       await refresh();
+      if (name === "checkout" || name === "authorize") setSyncError("");
       return d;
     } catch (e) {
       setError((e as Error).message);
@@ -136,8 +176,8 @@ export default function AgreementPage({
       returned.current = true;
       setReturnMessage("Confirming your authorization with PayPal…");
       void action("authorize").then((d) => {
+        setReturnMessage("");
         if (d) {
-          setReturnMessage("");
           history.replaceState(null, "", location.pathname);
         }
       });
@@ -197,6 +237,12 @@ export default function AgreementPage({
   const unmet = findings?.some((f) => f.status !== "SATISFIED");
   const amount = a ? money(a.amountMinor) : "";
   const legacy = Boolean(a?.digest && a.terms?.schemaVersion === "1");
+  const sampleAgreement = Boolean(
+    a?.testTemplateId ||
+      (a?.mode === "sandbox" &&
+        typeof window !== "undefined" &&
+        a.sourceUrl === window.location.origin + "/demo-site/" + id),
+  );
   const step =
     a?.state === "DRAFT"
       ? 0
@@ -312,6 +358,7 @@ export default function AgreementPage({
               agreement={a}
               seller={seller}
               canSwitchView={canSwitchView}
+              connected={setup?.connected}
             />
           )}
           {testPage && seller && !terminal && !paid && (
@@ -351,6 +398,43 @@ export default function AgreementPage({
             </div>
           )}
           <ErrorBox message={error} />
+          <ErrorBox message={syncError} />
+          {a.payment.checkoutUnavailable && !terminal && !paid && (
+            <section
+              id="checkout-recovery"
+              className="notice warning"
+              aria-label="Checkout recovery"
+            >
+              <div>
+                <strong>This PayPal checkout is no longer available</strong>
+                <p>
+                  The original agreement stays in your history. A fresh
+                  agreement needs a new client approval.
+                </p>
+                {seller ? (
+                  <Link
+                    className="button"
+                    href={
+                      sampleAgreement
+                        ? "/workspace#templates"
+                        : "/agreements/new?copy=" + id
+                    }
+                  >
+                    Start a fresh agreement →
+                  </Link>
+                ) : canSwitchView ? (
+                  <a
+                    className="button"
+                    href={"/agreements/" + id + "?view=freelancer"}
+                  >
+                    Return to freelancer to restart →
+                  </a>
+                ) : (
+                  <p>Ask your freelancer to send a new agreement link.</p>
+                )}
+              </div>
+            </section>
+          )}
           {returnMessage && (
             <div className="notice info" role="status">
               {returnMessage}

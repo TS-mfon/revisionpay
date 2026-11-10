@@ -5,6 +5,7 @@ import {
   DomainError,
   publicAgreement,
   nextAction,
+  hasPendingWork,
   type Tenant,
   requireCondition,
   type DemoVariant,
@@ -391,6 +392,18 @@ async function route(
       const id = z.string().uuid().parse(path[1]);
       const action = path[2];
       const a = await service.allowed(store, who, id);
+      if (action === "progress" && post) {
+        const pending = hasPendingWork(a);
+        // Do not call ensureJob here: polling must respect saved retry times,
+        // active leases and provider backoff, rather than rescheduling them.
+        if (pending) kick(id);
+        return json({ pending }, 202);
+      }
+      if (action === "checkout-status" && post) {
+        const current = await service.refreshCheckout(store, who, id);
+        if (hasPendingWork(current)) kick(id);
+        return json({ agreement: publicAgreement(current) });
+      }
       if (action === "logout" && post) {
         requireCondition(
           who.kind === "buyer",
@@ -430,6 +443,7 @@ async function route(
           agreement: publicAgreement(a),
           actor: who,
           nextAction: nextAction(a, who.role),
+          pendingWork: hasPendingWork(a),
           canSwitchView: Boolean(
             other &&
               other.role !== who.role &&

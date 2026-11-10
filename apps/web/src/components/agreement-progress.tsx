@@ -11,16 +11,31 @@ export function AgreementProgress({
   agreement: a,
   seller,
   canSwitchView,
+  connected,
 }: {
   agreement: Agreement;
   seller: boolean;
   canSwitchView: boolean;
+  connected?: boolean;
 }) {
   const submission = currentSubmission(a);
   const closed =
     a.state === "CANCELED" || ["VOIDED", "EXPIRED"].includes(a.payment.status);
   const paid = a.payment.status === "PAID";
   const checkingPayment = MONEY_IN_FLIGHT.includes(a.payment.status);
+  const needsConnection = seller && a.state === "DRAFT" && connected === false;
+  const continueAs =
+    !closed && !paid && !checkingPayment && canSwitchView
+      ? seller &&
+        (a.state === "AWAITING_BUYER" ||
+          (submission?.state === "READY" && a.state !== "REVIEW_HOLD"))
+        ? "client"
+        : !seller &&
+            a.payment.status === "AUTHORIZED" &&
+            (!submission || a.state === "REVIEW_HOLD")
+          ? "freelancer"
+          : undefined
+      : undefined;
   const step = paid
     ? 4
     : a.state === "DRAFT"
@@ -36,23 +51,27 @@ export function AgreementProgress({
     ? "This agreement is closed"
     : paid
       ? "Work approved. Payment confirmed."
-      : checkingPayment
-        ? "We’re confirming the payment with PayPal"
-        : step === 0
-          ? "Your turn: review the draft and create a client link"
-          : step === 1
-            ? seller
-              ? "Next: your client reviews and authorizes the fee"
-              : "Your turn: review the agreement and authorize the fee"
-            : step === 2
-              ? seller
-                ? "Your turn: publish and submit the changes"
-                : "Next: your freelancer makes the changes"
-              : submission?.state === "CAPTURING"
-                ? "We’re checking the updated page"
-                : seller
-                  ? "Next: your client reviews the submitted work"
-                  : "Your turn: review the work, then approve or request changes";
+      : a.payment.checkoutUnavailable
+        ? "This checkout needs a fresh agreement"
+        : checkingPayment
+          ? "We’re confirming the payment with PayPal"
+          : needsConnection
+            ? "Next: connect PayPal, then share this agreement"
+            : step === 0
+              ? "Your turn: review the draft and create a client link"
+              : step === 1
+                ? seller
+                  ? "Next: your client reviews and authorizes the fee"
+                  : "Your turn: review the agreement and authorize the fee"
+                : step === 2
+                  ? seller
+                    ? "Your turn: publish and submit the changes"
+                    : "Next: your freelancer makes the changes"
+                  : submission?.state === "CAPTURING"
+                    ? "We’re checking the updated page"
+                    : seller
+                      ? "Next: your client reviews the submitted work"
+                      : "Your turn: review the work, then approve or request changes";
   return (
     <section className="agreement-progress" aria-label="Agreement progress">
       <div className="view-context">
@@ -103,9 +122,55 @@ export function AgreementProgress({
               : "Authorization means permission to collect later. Payment is collected only after the client approves the finished work."}
       </p>
       {!closed && !paid && (
-        <a className="text-link" href="#next-step">
-          Go to the next step ↓
-        </a>
+        <div className="flow-actions">
+          {needsConnection ? (
+            <Link
+              className="button"
+              href={
+                "/settings?returnTo=" +
+                encodeURIComponent("/agreements/" + a.id + "?view=freelancer")
+              }
+            >
+              Set up PayPal for this agreement →
+            </Link>
+          ) : a.payment.checkoutUnavailable ? (
+            <a className="button" href="#checkout-recovery">
+              View checkout recovery ↓
+            </a>
+          ) : continueAs ? (
+            <a
+              className="button"
+              href={
+                "/agreements/" +
+                a.id +
+                (continueAs === "freelancer" ? "?view=freelancer" : "")
+              }
+            >
+              Continue as {continueAs} →
+            </a>
+          ) : !checkingPayment && submission?.state !== "CAPTURING" ? (
+            <a className="button" href="#next-step">
+              {step === 0
+                ? "Review and share"
+                : step === 1
+                  ? seller
+                    ? "View client invitation"
+                    : "Review and authorize"
+                  : step === 2
+                    ? seller
+                      ? "Submit the changes"
+                      : "View next step"
+                    : seller
+                      ? "View submitted work"
+                      : "Review and approve"}{" "}
+              ↓
+            </a>
+          ) : (
+            <p role="status">
+              Working on this step… This page updates automatically.
+            </p>
+          )}
+        </div>
       )}
       {!seller && (
         <p className="small-text">
