@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { Shell } from "@/components/ui";
+import { SandboxEmailHelp } from "@/components/sandbox-help";
 export default function Help() {
   return (
     <Shell title="Help">
@@ -43,8 +44,9 @@ export default function Help() {
         <section id="paypal">
           <h2>PayPal sign-in or verification trouble</h2>
           <p>
-            In the sandbox workspace, use a generated sandbox Personal account
-            from the{" "}
+            To connect as a freelancer, use a sandbox Business account. To
+            authorize a client payment, use a separate sandbox Personal account.
+            Find both in the{" "}
             <a
               href="https://developer.paypal.com/dashboard/accounts"
               target="_blank"
@@ -52,9 +54,10 @@ export default function Help() {
             >
               PayPal Developer Dashboard
             </a>
-            . Its email and password are separate from your normal PayPal
+            . Their emails and passwords are separate from your normal PayPal
             credentials. Use password sign-in if PayPal offers it.
           </p>
+          <SandboxEmailHelp expanded />
           <p>
             RevisionPay cannot receive or bypass PayPal’s verification codes. If
             approval is interrupted, return to your agreement and use “Resume

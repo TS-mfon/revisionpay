@@ -13,7 +13,7 @@ import {
   RetryPanel,
 } from "@/components/ui";
 import { safeReturnPath } from "@/lib/navigation";
-import { SandboxHelp } from "@/components/sandbox-help";
+import { SandboxEmailHelp, SandboxHelp } from "@/components/sandbox-help";
 export default function Settings() {
   const { who, error: authError } = useMe(),
     [data, setData] = useState<any>(),
@@ -210,7 +210,39 @@ export default function Settings() {
                 ? "This workspace connects to PayPal sandbox for the hackathon. Use sandbox business and personal accounts; all payments use test funds."
                 : "Connect an eligible PayPal business account to receive client payments. Availability depends on your country and PayPal’s account checks."}
             </p>
-            {data.merchant.environment === "sandbox" && <SandboxHelp seller />}
+            {data.merchant.status === "PENDING" && (
+              <div className="notice info" role="status">
+                <strong>
+                  {data.merchant.checks?.emailConfirmed === false
+                    ? "Confirm your PayPal email"
+                    : data.merchant.checks?.permissionsGranted === false
+                      ? "Allow RevisionPay to process your payments"
+                      : data.merchant.checks?.paymentsReceivable === false
+                        ? "Finish your PayPal account setup"
+                        : "Waiting for PayPal to confirm your account"}
+                </strong>
+                <p>
+                  {data.merchant.checks?.emailConfirmed === false
+                    ? data.merchant.environment === "sandbox"
+                      ? "PayPal has not confirmed the email for this test account. Open Sandbox Notifications below, confirm it, then check your connection."
+                      : "Confirm the email address in your PayPal account, then check your connection here."
+                    : data.merchant.checks?.permissionsGranted === false
+                      ? "Continue setup in PayPal and approve the requested payment permissions, then check your connection."
+                      : data.merchant.checks?.paymentsReceivable === false
+                        ? "PayPal says this account cannot receive payments yet. Sign in to PayPal, complete its outstanding account steps, then check your connection."
+                        : "Complete the steps in PayPal, then choose Check connection. Returning here alone does not finish setup."}
+                </p>
+              </div>
+            )}
+            {data.merchant.environment === "sandbox" &&
+              data.merchant.status !== "READY" && (
+                <>
+                  <SandboxEmailHelp
+                    expanded={data.merchant.checks?.emailConfirmed === false}
+                  />
+                  <SandboxHelp seller />
+                </>
+              )}
             {data.merchant.legalName && (
               <p>
                 <strong>{data.merchant.legalName}</strong>
@@ -244,7 +276,10 @@ export default function Settings() {
                   busy={busy === "connect"}
                   onClick={() => run("connect")}
                 >
-                  Connect PayPal <ArrowRight size={18} />
+                  {data.merchant.status === "PENDING"
+                    ? "Continue setup in PayPal"
+                    : "Connect PayPal"}{" "}
+                  <ArrowRight size={18} />
                 </Button>
                 {!data.readiness.merchantOnboarding && (
                   <div className="notice info">

@@ -114,6 +114,89 @@ test("a new freelancer sees payment setup before sharing and returns to the same
   });
 });
 
+test("a seller waiting for email confirmation gets sandbox instructions and can recheck without losing their draft", async ({
+  page,
+  context,
+  baseURL,
+}, info) => {
+  const { a, store } = await seed(context, baseURL!, info);
+  // The local server runs in demo mode; merchantStatus uses the live namespace
+  // there. These isolated fixtures never contact PayPal or the hosted database.
+  const key = "merchant:live:" + a.tenantId;
+  const pending = {
+    tenantId: a.tenantId,
+    environment: "sandbox",
+    trackingId: "local-email-test",
+    status: "PENDING",
+    checks: {
+      emailConfirmed: false,
+      permissionsGranted: true,
+      paymentsReceivable: true,
+    },
+  };
+  await store.putValue(key, pending);
+  let confirmed = false;
+  let refreshes = 0;
+  await page.route("**/api/merchant/refresh", async (route) => {
+    refreshes++;
+    const merchant = confirmed
+      ? {
+          ...pending,
+          status: "READY",
+          checks: { ...pending.checks, emailConfirmed: true },
+        }
+      : pending;
+    await store.putValue(key, merchant);
+    await route.fulfill({ json: { merchant } });
+  });
+  await page.setViewportSize({ width: 390, height: 844 });
+  const returnTo = "/agreements/" + a.id + "?view=freelancer";
+  await page.goto(
+    "/settings?paypal=connected&returnTo=" + encodeURIComponent(returnTo),
+  );
+  await expect.poll(() => refreshes).toBe(1);
+  await expect(
+    page.getByText("Confirm your PayPal email", { exact: true }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("link", { name: "Sandbox Notifications" }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("link", { name: "Sandbox Notifications" }),
+  ).toHaveAttribute(
+    "href",
+    "https://developer.paypal.com/dashboard/notifications",
+  );
+  await expect(
+    page.getByText("Choose or create a", { exact: false }),
+  ).toContainText("Business");
+  await expect(
+    page.getByText("Your agreement is saved while you set up payments."),
+  ).toBeVisible();
+  expect(
+    await page.evaluate(
+      () => document.documentElement.scrollWidth <= innerWidth,
+    ),
+  ).toBe(true);
+  confirmed = true;
+  await page.getByRole("button", { name: "Check connection" }).click();
+  await expect(
+    page.getByText("PayPal is connected. Your agreement is ready to continue."),
+  ).toBeVisible();
+  await expect(
+    page.getByText("Confirm your PayPal email", { exact: true }),
+  ).toHaveCount(0);
+  await page
+    .getByRole("link", { name: "Back to your agreement", exact: false })
+    .first()
+    .click();
+  await expect(
+    page.getByRole("heading", { name: a.title, exact: true }),
+  ).toBeVisible();
+  expect((await store.getAgreement(a.id))!.payment.status).toBe("NONE");
+  expect((await store.getAgreement(a.id))!.invitation).toBeUndefined();
+});
+
 test("testing a client invitation in the same browser preserves both roles and allows client sign-out", async ({
   page,
   context,

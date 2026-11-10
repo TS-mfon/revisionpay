@@ -106,15 +106,20 @@ export async function connectMerchant(
   await store.putValue(key(who.tenantId), { ...connection, status: "PENDING" });
   return { url: url.href };
 }
-export function onboardingComplete(result: Record<string, any>) {
+export function onboardingChecks(result: Record<string, any>) {
   const scopes = (result.oauth_integrations || []).flatMap((v: any) =>
     (v.oauth_third_party || []).flatMap((p: any) => p.scopes || []),
   );
-  return (
-    result.payments_receivable === true &&
-    result.primary_email_confirmed === true &&
-    scopes.some((s: string) => s.endsWith("/payment/authcapture"))
-  );
+  return {
+    emailConfirmed: result.primary_email_confirmed === true,
+    paymentsReceivable: result.payments_receivable === true,
+    permissionsGranted: scopes.some((s: string) =>
+      s.endsWith("/payment/authcapture"),
+    ),
+  };
+}
+export function onboardingComplete(result: Record<string, any>) {
+  return Object.values(onboardingChecks(result)).every(Boolean);
 }
 export async function refreshMerchant(store: Store, who: Actor) {
   const connection = await merchantStatus(store, who),
@@ -133,7 +138,7 @@ export async function refreshMerchant(store: Store, who: Actor) {
     503,
   );
   // Resolve the merchant by our own saved tracking ID; never trust redirect parameters.
-  const result = await requestPayPal(
+  const lookup = await requestPayPal(
     "/v1/customer/partners/" +
       encodeURIComponent(partner) +
       "/merchant-integrations?tracking_id=" +
@@ -146,10 +151,30 @@ export async function refreshMerchant(store: Store, who: Actor) {
     "PLATFORM",
   );
   requireCondition(
-    result.tracking_id === connection.trackingId &&
-      typeof result.merchant_id === "string",
+    lookup.tracking_id === connection.trackingId &&
+      typeof lookup.merchant_id === "string" &&
+      lookup.merchant_id.length > 0,
     "MERCHANT_PENDING",
     "Finish the steps in PayPal, then check your connection again.",
+  );
+  // The tracking lookup identifies the account. Read seller status separately
+  // for the confirmed email, receiving capability and granted permissions.
+  const result = await requestPayPal(
+    "/v1/customer/partners/" +
+      encodeURIComponent(partner) +
+      "/merchant-integrations/" +
+      encodeURIComponent(lookup.merchant_id),
+    "GET",
+    undefined,
+    undefined,
+    connection.environment,
+    undefined,
+    "PLATFORM",
+  );
+  requireCondition(
+    result.merchant_id === lookup.merchant_id,
+    "MERCHANT_MISMATCH",
+    "PayPal returned a different account. Check your connection again.",
   );
   const saved: MerchantConnection = {
     ...connection,
@@ -157,6 +182,7 @@ export async function refreshMerchant(store: Store, who: Actor) {
     legalName: result.legal_name,
     country: result.country,
     checkedAt: new Date().toISOString(),
+    checks: onboardingChecks(result),
     status: onboardingComplete(result) ? "READY" : "PENDING",
   };
   await store.putValue(key(who.tenantId), saved);

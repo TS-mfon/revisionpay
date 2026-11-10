@@ -69,6 +69,14 @@ offers a fresh-agreement path and is never replaced with a payment automatically
 Test templates cannot be created in live mode. Client email is optional for these
 drafts because private invitation links work without an email sender.
 
+For seller setup, use a generated **Business** account from the PayPal Developer
+Dashboard, separate from the Platform Partner App account. Account settings show
+which provider checks are still pending and link to **Sandbox Notifications** for
+test email confirmation. If no message or account appears there, link the sandbox
+account to the developer dashboard or reconnect using a generated Business test
+account. **Check connection** verifies email confirmation, receiving capability,
+and payment permission with PayPal before marking the account connected.
+
 ## Connect real sandbox services
 
 Copy the settings in [.env.example](.env.example) into `.env.local` and supply:

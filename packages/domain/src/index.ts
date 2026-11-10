@@ -10,6 +10,11 @@ export interface MerchantConnection {
   legalName?: string;
   country?: string;
   checkedAt?: string;
+  checks?: {
+    emailConfirmed: boolean;
+    paymentsReceivable: boolean;
+    permissionsGranted: boolean;
+  };
 }
 export interface Tenant {
   id: string;
