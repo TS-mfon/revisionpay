@@ -11,7 +11,7 @@ export function draft(
   input: CreateAgreement,
   tenantId: string,
   mode: Mode,
-  id = randomUUID(),
+  id: string = randomUUID(),
 ): Agreement {
   const now = new Date().toISOString();
   return {

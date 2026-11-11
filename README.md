@@ -1,19 +1,24 @@
 # RevisionPay
 
-Agree on a website revision, verify the delivered version, and collect the authorized PayPal payment when the agreed conditions are met.
+**Agree on done. Get paid on approval.** RevisionPay helps freelancers and clients finish small website revisions with clear requirements, captured evidence and a client-approved PayPal payment.
 
-[Open RevisionPay](https://revisionpay.vercel.app) · [Source repository](https://github.com/TS-mfon/revisionpay)
+[Open RevisionPay](https://revisionpay.vercel.app) · [Judge’s walkthrough](https://revisionpay.vercel.app/judges) · [Work Explorer](https://revisionpay.vercel.app/explore) · [Source repository](https://github.com/TS-mfon/revisionpay)
 
 RevisionPay gives freelancers and clients a clear path through a short website
 revision: agree on 3–5 changes, authorize one fee, submit the updated public page,
 then let the **client approve the finished work before payment is collected**.
 
-The site now has a **Workspace / Demo** switch, saved drafts, a focused client
-review page, readable receipts and a guided example that does not require manual
-role switching. The real workspace supports connected PayPal sandbox APIs for the
-hackathon. Google sign-in saves each user's workspace. Live payments and self-service
-merchant connections remain gated on provider setup. GenLayer Studionet supplies experimental
-advice; it does not automatically collect fees on new agreements.
+The product includes a public landing page, an interactive guided demo, reusable
+private invitation links, and an opt-in work Explorer. Clients post briefs,
+freelancers apply, and an accepted invitation creates a private agreement bound
+to both accounts. Application details and payment records are never public.
+Google sign-in saves each user's workspace. The connected workspace uses actual
+PayPal sandbox APIs and GenLayer Studionet; the guided demo uses separate simulated
+records. AI findings advise the client. The client explicitly approves collection.
+Live payments remain gated on partner approval and validation.
+
+For the hackathon presentation, see the [submission copy and demo script](docs/HACKATHON_SUBMISSION.md).
+The [captioned product video](https://revisionpay.vercel.app/judges#video) demonstrates the app in under three minutes; its payment and AI sequence is explicitly labeled as the guided simulation.
 
 See [product release and setup](docs/PRODUCT_RELEASE.md) for the Google OAuth setup, optional email
 sender domain, PayPal platform credentials, live launch gates and free Netlify
@@ -124,7 +129,7 @@ The CLI checks the authenticated GitHub numeric ID against `SELLER_GITHUB_ID`, w
 
 Alternatively, configure `GITHUB_CLIENT_ID` and `GITHUB_CLIENT_SECRET` for a GitHub OAuth app with callback `APP_URL/api/auth/callback/github`. GitHub CLI authentication and application OAuth credentials are separate.
 
-Buyers use the private invitation link. Keep it private; possession permits access to that agreement. It is single-use and establishes a browser session. Sandbox buyers approve using a **PayPal sandbox personal account**, separate from the seller's sandbox business account.
+Buyers use the private invitation link. Keep it private; possession permits access to that agreement. New links are reusable and the creator can retrieve the same link after reload or redemption. Only a server-held secret can derive the bearer link from its saved nonce. Older single-use links can be upgraded once from the agreement screen. Work Explorer agreements require the signed-in posting client's account, even when following an invitation. Sandbox buyers approve using a **PayPal sandbox personal account**, separate from the seller's sandbox business account.
 
 ### GenLayer verification
 

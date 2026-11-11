@@ -58,7 +58,9 @@ export function AgreementProgress({
           : needsConnection
             ? "Next: connect PayPal, then share this agreement"
             : step === 0
-              ? "Your turn: review the draft and create a client link"
+              ? seller
+                ? "Your turn: review the draft and create a client link"
+                : "Next: your freelancer prepares the agreement"
               : step === 1
                 ? seller
                   ? "Next: your client reviews and authorizes the fee"
@@ -151,7 +153,9 @@ export function AgreementProgress({
           ) : !checkingPayment && submission?.state !== "CAPTURING" ? (
             <a className="button" href="#next-step">
               {step === 0
-                ? "Review and share"
+                ? seller
+                  ? "Review and share"
+                  : "View the draft"
                 : step === 1
                   ? seller
                     ? "View client invitation"
@@ -174,7 +178,9 @@ export function AgreementProgress({
       )}
       {!seller && (
         <p className="small-text">
-          Keep this agreement’s address to return in this browser.{" "}
+          {a.workPostId
+            ? "Return to this agreement from Explorer → My posts."
+            : "Keep the private invitation link to return to this agreement."}{" "}
           <Link href="/help#access">Help returning later</Link>
         </p>
       )}

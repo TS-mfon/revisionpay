@@ -1,146 +1,284 @@
+import type { Metadata } from "next";
 import Link from "next/link";
 import {
   ArrowRight,
+  ArrowUpRight,
   Check,
-  FileText,
+  FileCheck2,
   CreditCard,
-  CheckCheck,
+  ScanText,
+  Users,
+  Github,
+  LockKeyhole,
 } from "lucide-react";
-import { Logo, ModeSwitch } from "@/components/ui";
+import { Logo } from "@/components/ui";
+import { RevisionExample } from "@/components/revision-example";
+export const metadata: Metadata = {
+  title: "RevisionPay — Agree on done. Get paid on approval.",
+  description:
+    "Turn a vague website revision into a clear checklist, captured evidence and a client-approved PayPal payment. Find work, agree, verify and get paid.",
+  robots: { index: true, follow: true },
+  alternates: { canonical: "/" },
+};
 export default function Home() {
   return (
-    <div className="home">
-      <header className="product-header">
+    <div className="landing">
+      <a className="skip-link" href="#content">
+        Skip to content
+      </a>
+      <header className="landing-header">
         <Logo />
-        <ModeSwitch />
-        <Link className="header-signin" href="/login">
-          Sign in <ArrowRight size={16} />
+        <nav aria-label="Main navigation">
+          <Link href="/explore">Find work</Link>
+          <a href="#how-it-works">How it works</a>
+          <Link href="/judges">For judges</Link>
+        </nav>
+        <Link className="landing-signin" href="/workspace">
+          Open workspace <ArrowUpRight size={17} />
         </Link>
       </header>
-      <main>
-        <section className="home-hero">
-          <div className="hero-intro">
-            <p className="eyebrow">FOR FREELANCERS & THEIR CLIENTS</p>
-            <h1>
-              Agree on the changes.
-              <br />
-              Get the work done.
-              <br />
-              <em>Get paid on approval.</em>
-            </h1>
-            <p className="hero-lead">
-              One website page. One clear checklist. One agreed fee. Your client
-              reviews the finished work before approving payment.
+      <main id="content">
+        <section className="landing-hero">
+          <div className="landing-copy">
+            <p className="eyebrow">
+              <span className="live-dot" /> BUILT FOR THE LAST MILE OF FREELANCE
+              WORK
             </p>
-            <div className="hero-actions">
+            <h1>
+              Agree on <em>done.</em>
+              <br />
+              Get paid on
+              <br />
+              <span>approval.</span>
+            </h1>
+            <p className="landing-lead">
+              “Just one more change” shouldn’t be a payment plan. Turn small
+              website revisions into a clear checklist, evidence of the work,
+              and a PayPal payment your client approves.
+            </p>
+            <div className="landing-actions">
               <Link className="button" href="/workspace">
-                Use RevisionPay <ArrowRight size={20} />
+                Use RevisionPay <ArrowRight size={19} />
               </Link>
               <Link className="button secondary" href="/demo">
                 Try the guided demo
               </Link>
             </div>
-            <p className="hero-caption">
-              Start with a draft. No crypto wallet required. Payments currently
-              use PayPal test funds.
+            <p className="landing-caption">
+              <Check size={14} /> No crypto wallet needed <span>·</span>{" "}
+              Connected PayPal sandbox
             </p>
           </div>
-          <div
-            className="example-document"
-            aria-label="Example revision agreement"
-          >
-            <div className="document-label">
-              <FileText size={18} />
-              <span>WHAT YOUR CLIENT SEES</span>
-              <span className="example-stamp">Example</span>
-            </div>
-            <h2>Make the pricing page clearer</h2>
+          <RevisionExample />
+        </section>
+        <div className="landing-ribbon">
+          <span>Clear requirements</span>
+          <ArrowRight size={16} />
+          <span>Captured evidence</span>
+          <ArrowRight size={16} />
+          <span>Client approval</span>
+          <ArrowRight size={16} />
+          <strong>PayPal payment</strong>
+        </div>
+        <section className="landing-problem" id="problem">
+          <div>
+            <p className="eyebrow">THE PROBLEM IS THE HANDOFF</p>
+            <h2>
+              A finished page.
+              <br />
+              An unfinished conversation.
+            </h2>
+          </div>
+          <div className="problem-copy">
             <p>
-              Alex Morgan <span aria-hidden="true">→</span> Northstar Studio
+              For freelancers, vague requests turn into extra rounds and payment
+              follow-ups. For clients, “it’s done” can arrive without a clear
+              way to check what changed.
             </p>
-            <div className="example-amount">
-              <span>Fixed revision fee</span>
-              <strong>
-                $180<span> USD</span>
-              </strong>
-            </div>
-            <ul className="plain-checks">
-              {[
-                "Explain the 14-day free trial",
-                "Keep $29/month and cancel anytime",
-                "Link the button to the trial signup",
-              ].map((t) => (
-                <li key={t}>
-                  <Check size={18} />
-                  {t}
-                </li>
-              ))}
-            </ul>
-            <div className="document-bottom">
-              <CreditCard size={23} />
-              <div>
-                <strong>You approve before you pay.</strong>
-                <p>Authorize the fee first. Review the work when it’s ready.</p>
-              </div>
-            </div>
+            <p>
+              RevisionPay puts the original agreement, the delivered version and
+              the payment decision in one shared place.
+            </p>
           </div>
         </section>
-        <section id="how-it-works" className="how-it-works">
-          <p className="eyebrow">A CLEAR NEXT STEP, FOR BOTH OF YOU</p>
-          <h2>
-            From “can you change this?”
-            <br />
-            to a finished revision.
-          </h2>
-          <div className="steps-grid">
+        <section id="how-it-works" className="landing-section">
+          <div className="section-heading">
+            <div>
+              <p className="eyebrow">FROM REQUEST TO RECEIPT</p>
+              <h2>
+                Less chasing.
+                <br />A clear next step.
+              </h2>
+            </div>
+            <p>
+              Built for copy and link changes on one public website page. Fixed
+              fees from $25 to $500.
+            </p>
+          </div>
+          <div className="landing-steps">
             {[
               {
                 n: "01",
-                title: "Agree on the work",
-                text: "The freelancer lists 3–5 changes to one public page and sets a fixed fee. The client reviews the agreement and authorizes payment.",
+                Icon: FileCheck2,
+                title: "Make “done” specific",
+                text: "Agree on the page, 3–5 requirements and a fixed fee. The client reviews the frozen checklist and authorizes the fee in PayPal.",
               },
               {
                 n: "02",
-                title: "Check the updated page",
-                text: "Publish the changes, then submit the page. AI compares the captured copy and links with the agreed requirements.",
+                Icon: ScanText,
+                title: "Bring evidence to the review",
+                text: "Submit the updated page. RevisionPay captures its copy and links. GenLayer AI checks each requirement and cites the evidence.",
               },
               {
                 n: "03",
-                title: "Review, approve, pay",
-                text: "The client reviews the work and findings. They can request changes or approve the agreed payment through PayPal.",
+                Icon: CreditCard,
+                title: "Approve the work. Then pay.",
+                text: "The client can request changes or approve the captured revision. RevisionPay collects the authorized PayPal fee and confirms the receipt.",
               },
-            ].map((s) => (
-              <article key={s.n}>
-                <span>{s.n}</span>
-                <h3>{s.title}</h3>
-                <p>{s.text}</p>
+            ].map(({ n, Icon, title, text }) => (
+              <article key={n}>
+                <div>
+                  <span>{n}</span>
+                  <Icon size={27} />
+                </div>
+                <h3>{title}</h3>
+                <p>{text}</p>
               </article>
             ))}
           </div>
         </section>
-        <section className="scope-section">
-          <CheckCheck size={28} />
+        <section className="landing-control">
+          <div className="control-mark">
+            <LockKeyhole size={52} />
+            <span>
+              THE CLIENT
+              <br />
+              HAS THE FINAL SAY
+            </span>
+          </div>
           <div>
-            <h2>Small, specific website revisions.</h2>
+            <p className="eyebrow">
+              AI CHECKS THE WORK. PEOPLE APPROVE PAYMENT.
+            </p>
+            <h2>
+              Useful evidence.
+              <br />A human decision.
+            </h2>
             <p>
-              Public page copy and link changes. USD $25–$500. Three submissions
-              and a two-day delivery window. AI findings help your review; your
-              client makes the payment decision.
+              A passing AI check doesn’t charge a client. The client reviews the
+              captured version and explicitly approves payment. If the work
+              needs a change, the agreed checklist stays in view.
+            </p>
+            <Link className="text-link" href="/help">
+              Understand the payment flow <ArrowRight size={17} />
+            </Link>
+          </div>
+        </section>
+        <section className="landing-section landing-audiences">
+          <div className="section-heading">
+            <div>
+              <p className="eyebrow">BRING YOUR CLIENT. OR FIND EACH OTHER.</p>
+              <h2>
+                One place to start
+                <br />
+                and finish the work.
+              </h2>
+            </div>
+          </div>
+          <div className="audience-grid">
+            <article>
+              <Users size={28} />
+              <h3>Need a website change?</h3>
+              <p>
+                Post a clear brief in the Explorer. Review applications, invite
+                a freelancer, and approve the agreement before work begins.
+              </p>
+              <Link className="button secondary" href="/explore/new">
+                Post work as a client <ArrowRight size={17} />
+              </Link>
+            </article>
+            <article>
+              <FileCheck2 size={28} />
+              <h3>Ready to do the work?</h3>
+              <p>
+                Apply to open briefs or create an agreement for a client you
+                already have. Keep the scope, evidence and next step together.
+              </p>
+              <Link className="button secondary" href="/explore">
+                Find work in the Explorer <ArrowRight size={17} />
+              </Link>
+            </article>
+          </div>
+        </section>
+        <section className="landing-judges">
+          <div>
+            <p className="eyebrow">PAYPAL AI HACKATHON · WORKING PROTOTYPE</p>
+            <h2>
+              See the whole idea
+              <br />
+              in the product.
+            </h2>
+            <p>
+              Follow a revision that misses a requirement, request a correction,
+              and review the final payment decision. Then explore the connected
+              workspace and the implementation.
+            </p>
+            <div className="landing-actions">
+              <Link className="button" href="/judges">
+                Open the judge’s walkthrough <ArrowRight size={18} />
+              </Link>
+              <a
+                className="text-link"
+                href="https://github.com/TS-mfon/revisionpay"
+                target="_blank"
+                rel="noreferrer"
+              >
+                <Github size={18} /> Read the source
+              </a>
+            </div>
+          </div>
+          <div className="build-facts">
+            <p>
+              <strong>PayPal</strong>
+              <span>
+                Seller onboarding · authorization · capture · verified payment
+                updates
+              </span>
             </p>
             <p>
-              Connected PayPal sandbox testing is available for the hackathon.
-              Live payments open after platform approval and validation.
+              <strong>GenLayer AI</strong>
+              <span>
+                Requirement checks with cited page evidence on Studionet
+              </span>
+            </p>
+            <p>
+              <strong>Current release</strong>
+              <span>
+                Real integrations in sandbox. Test funds. Live payments require
+                partner approval.
+              </span>
             </p>
           </div>
-          <Link href="/workspace" className="button">
-            Create a revision <ArrowRight size={18} />
+        </section>
+        <section className="landing-close">
+          <p className="eyebrow">MAKE THE NEXT REVISION CLEARER</p>
+          <h2>
+            A checklist you agree on.
+            <br />A payment you can explain.
+          </h2>
+          <Link className="button" href="/workspace">
+            Start an agreement <ArrowRight size={19} />
           </Link>
         </section>
       </main>
-      <footer className="product-footer">
+      <footer className="landing-footer">
         <Logo />
-        <span>PayPal payments · GenLayer checks</span>
-        <Link href="/help">How payment works</Link>
+        <span>Clear work. Evidence. Client-approved payment.</span>
+        <Link href="/help">Help</Link>
+        <Link href="/judges">Build & demo</Link>
+        <a href="https://github.com/TS-mfon/revisionpay/blob/main/LICENSE">
+          MIT license
+        </a>
       </footer>
     </div>
   );

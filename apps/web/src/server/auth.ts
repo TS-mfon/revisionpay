@@ -195,6 +195,37 @@ export async function linkOwnerGoogle(request: Request, store: Store) {
   return { linked: true, email: user.email };
 }
 
+export async function agreementActor(
+  store: Store,
+  principal: Actor,
+  agreementId?: string,
+  freelancer = false,
+): Promise<Actor> {
+  if (
+    !agreementId ||
+    freelancer ||
+    !["owner", "seller"].includes(principal.kind)
+  )
+    return principal;
+  const a = await store.getAgreement(agreementId);
+  if (!a || a.tenantId === principal.tenantId) return principal;
+  const matches = a.clientTenantId
+    ? a.clientTenantId === principal.tenantId
+    : Boolean(
+        principal.email &&
+          a.clientEmail?.toLowerCase() === principal.email.toLowerCase(),
+      );
+  return matches
+    ? {
+        ...principal,
+        tenantId: a.tenantId,
+        agreementId: a.id,
+        kind: "buyer",
+        role: "buyer",
+      }
+    : principal;
+}
+
 export async function actor(
   request: Request,
   store: Store,
@@ -235,13 +266,18 @@ export async function actor(
               : "seller";
         }
       }
-      return {
-        id: s.id,
-        tenantId: s.tenantId,
-        kind: s.kind,
-        role,
-        agreementId: s.agreementId,
-      };
+      return agreementActor(
+        store,
+        {
+          id: s.id,
+          tenantId: s.tenantId,
+          kind: s.kind,
+          role,
+          agreementId: s.agreementId,
+        },
+        agreementId,
+        freelancer,
+      );
     }
   }
   if (demo || !configuration().authSecret || !configuration().mongoUri) return;
@@ -252,14 +288,19 @@ export async function actor(
     "owner-link:" + session.user.id,
   );
   if (linked?.tenantId === "owner:" + configuration().githubId)
-    return {
-      id: session.user.id,
-      tenantId: linked.tenantId,
-      kind: "owner",
-      role: "seller",
-      email: session.user.email,
-      name: session.user.name,
-    };
+    return agreementActor(
+      store,
+      {
+        id: session.user.id,
+        tenantId: linked.tenantId,
+        kind: "owner",
+        role: "seller",
+        email: session.user.email,
+        name: session.user.name,
+      },
+      agreementId,
+      freelancer,
+    );
   if (process.env.GITHUB_CLIENT_ID && process.env.GITHUB_CLIENT_SECRET) {
     const accounts = await service.api.listUserAccounts({
       headers: request.headers,
@@ -270,40 +311,33 @@ export async function actor(
           v.providerId === "github" && v.accountId === configuration().githubId,
       )
     )
-      return {
-        id: session.user.id,
-        tenantId: "owner:" + configuration().githubId,
-        kind: "owner",
-        role: "seller",
-        email: session.user.email,
-        name: session.user.name,
-      };
-  }
-  if (agreementId && !freelancer) {
-    const agreement = await store.getAgreement(agreementId);
-    if (
-      agreement?.clientEmail?.toLowerCase() ===
-        session.user.email.toLowerCase() &&
-      agreement.tenantId !== "user:" + session.user.id
-    )
-      return {
-        id: session.user.id,
-        tenantId: agreement.tenantId,
+      return agreementActor(
+        store,
+        {
+          id: session.user.id,
+          tenantId: "owner:" + configuration().githubId,
+          kind: "owner",
+          role: "seller",
+          email: session.user.email,
+          name: session.user.name,
+        },
         agreementId,
-        kind: "buyer",
-        role: "buyer",
-        email: session.user.email,
-        name: session.user.name,
-      };
+        freelancer,
+      );
   }
-  return {
-    id: session.user.id,
-    tenantId: "user:" + session.user.id,
-    kind: "seller",
-    role: "seller",
-    email: session.user.email,
-    name: session.user.name,
-  };
+  return agreementActor(
+    store,
+    {
+      id: session.user.id,
+      tenantId: "user:" + session.user.id,
+      kind: "seller",
+      role: "seller",
+      email: session.user.email,
+      name: session.user.name,
+    },
+    agreementId,
+    freelancer,
+  );
 }
 
 export async function switchDemoRole(

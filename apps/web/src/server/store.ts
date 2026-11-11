@@ -9,6 +9,7 @@ import {
   type Session,
 } from "@revisionpay/domain";
 import { configuration } from "./config";
+import type { WorkPost, WorkQuery } from "@revisionpay/domain/work";
 
 type Doc<T> = { _id: string; value: T; version?: number };
 type LocalData = {
@@ -16,6 +17,7 @@ type LocalData = {
   sessions: Record<string, Session>;
   jobs: Record<string, Job>;
   values: Record<string, unknown>;
+  workPosts?: Record<string, WorkPost>;
 };
 const globals = globalThis as typeof globalThis & {
   rpMongo?: Promise<MongoClient>;
@@ -47,6 +49,10 @@ export async function mongoClient() {
   return globals.rpMongo;
 }
 export interface Store {
+  getWorkPost(id: string): Promise<WorkPost | undefined>;
+  createWorkPost(post: WorkPost): Promise<void>;
+  saveWorkPost(post: WorkPost, version: number): Promise<boolean>;
+  listWorkPosts(query: WorkQuery): Promise<WorkPost[]>;
   getAgreement(id: string): Promise<Agreement | undefined>;
   listAgreements(tenantId?: string): Promise<Agreement[]>;
   createAgreement(a: Agreement): Promise<void>;
@@ -67,6 +73,51 @@ export interface Store {
 }
 export class MongoStore implements Store {
   constructor(public db: Db) {}
+  async getWorkPost(id: string) {
+    return (
+      await this.db.collection<Doc<WorkPost>>("work_posts").findOne({ _id: id })
+    )?.value;
+  }
+  async createWorkPost(post: WorkPost) {
+    await this.db
+      .collection<Doc<WorkPost>>("work_posts")
+      .insertOne({ _id: post.id, value: post, version: post.version });
+  }
+  async saveWorkPost(post: WorkPost, version: number) {
+    post.version = version + 1;
+    return (
+      (
+        await this.db
+          .collection<Doc<WorkPost>>("work_posts")
+          .replaceOne(
+            { _id: post.id, version },
+            { value: post, version: post.version },
+          )
+      ).modifiedCount === 1
+    );
+  }
+  async listWorkPosts(query: WorkQuery) {
+    const filter: Record<string, unknown> = { "value.mode": query.mode };
+    if (query.view === "open") filter["value.status"] = "OPEN";
+    else if (query.view === "posts")
+      filter["value.clientTenantId"] = query.tenantId;
+    else filter["value.applications.tenantId"] = query.tenantId;
+    if (query.q) {
+      const regex = query.q.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      filter.$or = ["title", "description"].map((field) => ({
+        ["value." + field]: { $regex: regex, $options: "i" },
+      }));
+    }
+    return (
+      await this.db
+        .collection<Doc<WorkPost>>("work_posts")
+        .find(filter)
+        .sort({ "value.createdAt": -1, _id: -1 })
+        .skip((query.page - 1) * 20)
+        .limit(21)
+        .toArray()
+    ).map((d) => d.value);
+  }
   async getAgreement(id: string) {
     return (
       await this.db
@@ -305,6 +356,48 @@ export class LocalStore implements Store {
       values: {},
     },
   ) {}
+  getWorkPost(id: string) {
+    return this.atomic((d) => d.workPosts?.[id]);
+  }
+  createWorkPost(post: WorkPost) {
+    return this.atomic((d) => {
+      d.workPosts ||= {};
+      if (d.workPosts[post.id]) throw new Error("Duplicate work post");
+      d.workPosts[post.id] = clone(post);
+    });
+  }
+  saveWorkPost(post: WorkPost, version: number) {
+    return this.atomic((d) => {
+      if (d.workPosts?.[post.id]?.version !== version) return false;
+      post.version = version + 1;
+      d.workPosts[post.id] = clone(post);
+      return true;
+    });
+  }
+  listWorkPosts(query: WorkQuery) {
+    return this.atomic((d) =>
+      Object.values(d.workPosts || {})
+        .filter(
+          (p) =>
+            p.mode === query.mode &&
+            (query.view === "open"
+              ? p.status === "OPEN"
+              : query.view === "posts"
+                ? p.clientTenantId === query.tenantId
+                : p.applications.some((a) => a.tenantId === query.tenantId)),
+        )
+        .filter((p) =>
+          (p.title + " " + p.description)
+            .toLowerCase()
+            .includes(query.q.toLowerCase()),
+        )
+        .sort(
+          (a, b) =>
+            b.createdAt.localeCompare(a.createdAt) || b.id.localeCompare(a.id),
+        )
+        .slice((query.page - 1) * 20, query.page * 20 + 1),
+    );
+  }
   private async atomic<T>(fn: (d: LocalData) => T): Promise<T> {
     const run = async () => {
       if (this.file) {

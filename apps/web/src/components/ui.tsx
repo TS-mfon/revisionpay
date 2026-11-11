@@ -170,10 +170,22 @@ export function formatDate(value?: string) {
     : "—";
 }
 export function ModeSwitch({ demo = false }: { demo?: boolean }) {
+  const path = usePathname();
   return (
     <nav className="mode-switch" aria-label="Workspace mode">
-      <Link href="/workspace" aria-current={!demo ? "page" : undefined}>
+      <Link
+        href="/workspace"
+        aria-current={
+          !demo && !path.startsWith("/explore") ? "page" : undefined
+        }
+      >
         Workspace
+      </Link>
+      <Link
+        href="/explore"
+        aria-current={path.startsWith("/explore") ? "page" : undefined}
+      >
+        Explorer
       </Link>
       <Link href="/demo" aria-current={demo ? "page" : undefined}>
         Demo

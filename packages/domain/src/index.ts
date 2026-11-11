@@ -249,6 +249,8 @@ export interface AuditEvent {
 export interface Agreement {
   id: string;
   tenantId: string;
+  clientTenantId?: string;
+  workPostId?: string;
   version: number;
   mode: Mode;
   title: string;
@@ -279,7 +281,12 @@ export interface Agreement {
   terms?: Terms;
   digest?: string;
   frozenAt?: string;
-  invitation?: { tokenHash: string; expiresAt: string; redeemedAt?: string };
+  invitation?: {
+    tokenHash: string;
+    nonce?: string;
+    expiresAt?: string;
+    redeemedAt?: string;
+  };
   consents: Consent[];
   submissions: Submission[];
   currentSubmissionId?: string;
@@ -301,7 +308,7 @@ export interface Agreement {
   lastError?: string;
 }
 export type PublicAgreement = Omit<Agreement, "invitation"> & {
-  invitation?: { expiresAt: string; redeemed: boolean };
+  invitation?: { expiresAt?: string; redeemed: boolean };
 };
 export interface Session {
   id: string;
@@ -683,7 +690,9 @@ export function nextAction(a: Agreement, role: Role = "seller") {
   if (MONEY_IN_FLIGHT.includes(a.payment.status))
     return { label: "Checking payment", group: "Waiting" };
   if (a.state === "DRAFT")
-    return { label: "Review and send", group: "Needs your action" };
+    return role === "seller"
+      ? { label: "Review and send", group: "Needs your action" }
+      : { label: "Freelancer preparing agreement", group: "Waiting" };
   if (a.state === "AWAITING_BUYER")
     return {
       label: role === "buyer" ? "Review and authorize" : "View invitation",

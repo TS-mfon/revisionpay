@@ -37,6 +37,7 @@ export default function Builder() {
     [busy, setBusy] = useState(false),
     [loaded, setLoaded] = useState(false),
     [templateDraft, setTemplateDraft] = useState(false);
+  const [fixedClient, setFixedClient] = useState(false);
   const current = useRef(form),
     id = useRef(""),
     version = useRef(0),
@@ -54,6 +55,7 @@ export default function Builder() {
           const d = await api("agreements/" + existing),
             a = d.agreement;
           if (active) setTemplateDraft(Boolean(a.testTemplateId));
+          if (active) setFixedClient(Boolean(a.workPostId && q.has("draft")));
           if (q.has("draft") && a.state !== "DRAFT")
             throw new Error(
               "This agreement was already sent and cannot be edited.",
@@ -254,6 +256,7 @@ export default function Builder() {
                 Client or business name
                 <input
                   name="clientName"
+                  readOnly={fixedClient}
                   required
                   autoComplete="organization"
                   minLength={2}
@@ -269,6 +272,7 @@ export default function Builder() {
                 )}
                 <input
                   name="clientEmail"
+                  readOnly={fixedClient}
                   type="email"
                   required={!templateDraft}
                   autoComplete="email"

@@ -106,12 +106,14 @@ export async function deliverMail(store: Store) {
       const current = await store.getValue<MailJob>("mail:" + job.id);
       if (!current || current.status !== "PENDING") continue;
       if (current.id.startsWith("invite:")) {
-        const [, agreementId, tokenHash] = current.id.split(":");
+        const [, agreementId, ...hashParts] = current.id.split(":");
+        const tokenHash = hashParts.join(":");
         const agreement = await store.getAgreement(agreementId);
         if (
           agreement?.invitation?.tokenHash !== tokenHash ||
           agreement.invitation.redeemedAt ||
-          Date.parse(agreement.invitation.expiresAt) <= Date.now() ||
+          (agreement.invitation.expiresAt &&
+            Date.parse(agreement.invitation.expiresAt) <= Date.now()) ||
           agreement.state !== "AWAITING_BUYER"
         ) {
           current.status = "CANCELED";

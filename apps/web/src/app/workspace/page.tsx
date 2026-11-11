@@ -71,6 +71,14 @@ export default function Workspace() {
         )}
       </div>
       <ErrorBox message={error || authError} />
+      <div className="workspace-explorer-links">
+        <Link href="/explore">Find work</Link>
+        <Link href="/explore/new">Post work as a client</Link>
+        <Link href="/explore?view=posts">My posts & client agreements</Link>
+        <Link href="/explore?view=applications">
+          My applications & invitations
+        </Link>
+      </div>
       {who === null ? (
         <section className="welcome-panel">
           <FileText size={34} />

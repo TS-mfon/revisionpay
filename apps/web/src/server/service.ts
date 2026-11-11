@@ -19,6 +19,7 @@ import { command, applyAuthorization } from "./workflow";
 import { paypal, demoGateway } from "./paypal";
 import { merchantStatus } from "./merchants";
 import { queueMail, notifyAgreement } from "./mail";
+import { newInvitation, invitationUrl } from "./invitations";
 
 export async function allowed(
   store: Store,
@@ -55,6 +56,7 @@ export async function create(
   who: Actor,
   input: unknown,
   useTemplate: boolean | string = false,
+  work?: { id: string; postId: string; clientTenantId: string },
 ) {
   requireCondition(
     who.role === "seller",
@@ -68,6 +70,21 @@ export async function create(
     "New agreements are temporarily paused.",
     503,
   );
+  if (work) {
+    const existing = await store.getAgreement(work.id);
+    if (existing) {
+      requireCondition(
+        existing.tenantId === who.tenantId &&
+          existing.workPostId === work.postId &&
+          existing.clientTenantId === work.clientTenantId,
+        "AGREEMENT_MISMATCH",
+        "This work is linked to a different agreement.",
+        409,
+      );
+      await store.ensureJob(existing.id);
+      return existing;
+    }
+  }
   const template =
     typeof useTemplate === "string"
       ? agreementTemplate(useTemplate)
@@ -102,7 +119,7 @@ export async function create(
     "The daily demonstration limit has been reached.",
     429,
   );
-  const id = randomUUID();
+  const id = work?.id || randomUUID();
   const demo = who.kind === "demo";
   const data = CreateAgreementSchema.parse(
     template
@@ -150,14 +167,18 @@ export async function create(
   const a = draft(
     data,
     who.tenantId,
-    template
-      ? "sandbox"
-      : demo
-        ? "demo"
-        : configuration().mode === "live" ||
-            (who.kind === "seller" && configuration().mode !== "sandbox")
-          ? "live"
-          : "sandbox",
+    work
+      ? configuration().mode === "live"
+        ? "live"
+        : "sandbox"
+      : template
+        ? "sandbox"
+        : demo
+          ? "demo"
+          : configuration().mode === "live" ||
+              (who.kind === "seller" && configuration().mode !== "sandbox")
+            ? "live"
+            : "sandbox",
     id,
   );
   a.termsVersion = "2";
@@ -165,6 +186,8 @@ export async function create(
   a.draftRevision = 0;
   a.sellerName = who.name || (demo ? "Alex Morgan" : "Your freelancer");
   a.sellerEmail = who.email;
+  a.workPostId = work?.postId;
+  a.clientTenantId = work?.clientTenantId;
 
   audit(
     a,
@@ -172,7 +195,19 @@ export async function create(
     "A fixed-price website revision agreement was created.",
     "seller",
   );
-  await store.createAgreement(a);
+  try {
+    await store.createAgreement(a);
+  } catch (error) {
+    const existing = work && (await store.getAgreement(id));
+    if (
+      !existing ||
+      existing.tenantId !== who.tenantId ||
+      existing.workPostId !== work?.postId
+    )
+      throw error;
+    await store.ensureJob(id);
+    return existing;
+  }
   await store.ensureJob(id);
   return a;
 }
@@ -218,7 +253,7 @@ export async function freezeAgreement(
     integration =
       connection.trackingId === "legacy-owner" ? "DIRECT" : "PLATFORM";
   }
-  const raw = token(),
+  const prepared = newInvitation(id, before.mode === "demo"),
     lease = randomUUID();
   const admission = before.mode === "live";
   if (admission)
@@ -268,15 +303,12 @@ export async function freezeAgreement(
         x.payment.integration = integration;
       }
       freeze(x);
-      x.invitation = {
-        tokenHash: sha256(raw),
-        expiresAt: new Date(Date.now() + 7 * 86400000).toISOString(),
-      };
+      x.invitation = prepared.invitation;
       if (admission) x.admissionMonth = new Date().toISOString().slice(0, 7);
     });
-    const invitationUrl = configuration().appUrl + "/invite#" + raw;
-    const email = await invitationMail(store, a, invitationUrl);
-    return { a, invitationUrl, email };
+    const link = invitationUrl(a)!;
+    const email = await invitationMail(store, a, link);
+    return { a, invitationUrl: link, email };
   } finally {
     if (admission) await store.releaseSlot("live-admission", lease);
   }
@@ -339,6 +371,13 @@ export async function updateDraft(
       "DRAFT_CHANGED",
       "This draft changed in another tab. Reload it before editing.",
     );
+    requireCondition(
+      !x.workPostId ||
+        (data.clientEmail === x.clientEmail &&
+          data.clientName === x.clientName),
+      "CLIENT_LOCKED",
+      "The client is fixed by the accepted work invitation.",
+    );
     if (x.sourceUrl !== data.sourceUrl) {
       x.baseline = undefined;
       x.baselineStatus = "QUEUED";
@@ -351,25 +390,27 @@ export async function updateDraft(
   return a;
 }
 
-export async function invite(store: Store, who: Actor, id: string) {
+export async function invite(
+  store: Store,
+  who: Actor,
+  id: string,
+  replace = false,
+) {
   await allowed(store, who, id, "seller");
-  const raw = token();
+  const prepared = newInvitation(id);
   const a = await mutate(store, id, (a) => {
     requireCondition(
-      a.state === "AWAITING_BUYER" &&
-        !a.invitation?.redeemedAt &&
-        a.payment.status === "NONE",
+      a.state !== "DRAFT" && a.mode !== "demo",
       "INVITATION_LOCKED",
-      "The invitation cannot be replaced after redemption or checkout begins.",
+      "Create the client link after reviewing your draft.",
     );
+    if (!replace && invitationUrl(a)) return;
     a.invitation = {
-      tokenHash: sha256(raw),
-      expiresAt: new Date(Date.now() + 7 * 86400000).toISOString(),
+      ...prepared.invitation,
+      redeemedAt: a.invitation?.redeemedAt,
     };
   });
-  const url = configuration().appUrl + "/invite#" + raw;
-  const email = await invitationMail(store, a, url);
-  return { invitationUrl: url, email };
+  return { invitationUrl: invitationUrl(a), email: "LINK_READY" };
 }
 export async function consent(
   store: Store,

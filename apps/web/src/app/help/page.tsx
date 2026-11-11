@@ -66,12 +66,13 @@ export default function Help() {
           </p>
         </section>
         <section id="access">
-          <h2>Lost or expired invitation?</h2>
+          <h2>Need your client link again?</h2>
           <p>
-            Use the original browser to return to the agreement. If your
-            freelancer supplied your email, sign in with the Google account
-            matching that email to recover access on another device. You can
-            also ask your freelancer for a fresh private invitation link.
+            Freelancers can reopen an agreement and copy the same private client
+            link whenever needed. The client can use it again on another device.
+            For older agreements, choose “Save reusable client link” once. For
+            work started in the Explorer, sign in with the account that posted
+            the work and open the agreement from My posts.
           </p>
           <Link className="button secondary" href="/login">
             Sign in with Google

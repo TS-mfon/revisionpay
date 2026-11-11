@@ -37,6 +37,8 @@ import {
   onboardingWebhook,
 } from "@/server/merchants";
 import { deliverMail, notifyAgreement } from "@/server/mail";
+import { invitationUrl, invitationUsable } from "@/server/invitations";
+import * as explorer from "@/server/explorer";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -202,22 +204,24 @@ async function route(
           return json({ agreementId: a.id });
       }
       requireCondition(
-        a?.invitation &&
-          !a.invitation.redeemedAt &&
-          Date.parse(a.invitation.expiresAt) > Date.now() &&
-          a.state === "AWAITING_BUYER",
+        a && invitationUsable(a, data.token),
         "INVITATION_EXPIRED",
         "This invitation is invalid, expired, or already redeemed.",
         410,
       );
+      requireCondition(
+        !a.clientTenantId,
+        "CLIENT_SIGN_IN_REQUIRED",
+        "Sign in with the account that posted this work to open its agreement.",
+        403,
+      );
       await mutate(store, a.id, (x) => {
         requireCondition(
-          x.invitation?.tokenHash === sha256(data.token) &&
-            !x.invitation.redeemedAt,
+          invitationUsable(x, data.token),
           "INVITATION_USED",
           "This invitation has already been used.",
         );
-        x.invitation.redeemedAt = new Date().toISOString();
+        x.invitation!.redeemedAt ||= new Date().toISOString();
       });
       const issued = await issueSession(store, {
         tenantId: a.tenantId,
@@ -258,6 +262,14 @@ async function route(
       return json({ signedIn: true }, 200, { "Set-Cookie": issued.cookie });
     }
     const who = await actor(request, store);
+    if (key === "explorer" && request.method === "GET")
+      return json(
+        await explorer.listWork(store, who, new URL(request.url).searchParams),
+      );
+    if (path[0] === "explorer" && path.length === 2 && request.method === "GET")
+      return json(
+        await explorer.workDetail(store, who, z.string().uuid().parse(path[1])),
+      );
     if (key === "me")
       return json({ actor: who || null, readiness: readiness() });
     requireCondition(
@@ -302,6 +314,35 @@ async function route(
               : "rp_session",
         ),
       });
+    }
+    if (key === "explorer" && post) {
+      const work = await explorer.postWork(store, who, await body(request));
+      return json({ post: work }, 201);
+    }
+    if (path[0] === "explorer" && path[1] && post) {
+      const id = z.string().uuid().parse(path[1]);
+      const data = await body(request);
+      if (path[2] === "apply") await explorer.applyToWork(store, who, id, data);
+      else if (path[2] === "invite")
+        await explorer.inviteFreelancer(
+          store,
+          who,
+          id,
+          z.string().uuid().parse(data.applicationId),
+        );
+      else if (path[2] === "respond") {
+        const agreement = await explorer.respondToWork(
+          store,
+          who,
+          id,
+          z.boolean().parse(data.accept),
+        );
+        if (agreement) kick(agreement.id);
+      } else if (path[2] === "close") await explorer.closeWork(store, who, id);
+      else if (path[2] === "withdraw")
+        await explorer.withdrawApplication(store, who, id);
+      else throw new DomainError("NOT_FOUND", "Action not found.", 404);
+      return json(await explorer.workDetail(store, who, id));
     }
     if (key === "profile/link-google" && post)
       return json(await linkOwnerGoogle(request, store));
@@ -444,6 +485,7 @@ async function route(
           actor: who,
           nextAction: nextAction(a, who.role),
           pendingWork: hasPendingWork(a),
+          invitationUrl: who.role === "seller" ? invitationUrl(a) : undefined,
           canSwitchView: Boolean(
             other &&
               other.role !== who.role &&
@@ -524,7 +566,12 @@ async function route(
           z.number().int().nonnegative().parse(data.draftRevision),
         );
       else if (action === "invite") {
-        const invitation = await service.invite(store, who, id);
+        const invitation = await service.invite(
+          store,
+          who,
+          id,
+          data.replace === true,
+        );
         kick(id);
         return json(invitation);
       } else if (action === "consent")

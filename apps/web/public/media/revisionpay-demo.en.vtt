@@ -1,0 +1,40 @@
+WEBVTT
+
+00:00:00.000 --> 00:00:11.133
+Small revisions can become vague scope and payment follow-ups. RevisionPay makes the handoff clear.
+
+00:00:11.133 --> 00:00:19.833
+One public page. Three specific outcomes. A fixed fee. Freelancers can find the work in the Explorer.
+
+00:00:19.833 --> 00:00:30.933
+Applications stay private between the freelancer and the client. The client chooses who to invite.
+
+00:00:30.933 --> 00:00:38.567
+Accepting the invitation creates one private agreement, with the client and freelancer in their correct roles.
+
+00:00:38.567 --> 00:00:47.500
+This guided example simulates PayPal payments and AI results. The connected workspace uses actual sandbox APIs.
+
+00:00:47.500 --> 00:01:04.933
+The client reviews the frozen checklist and authorizes the fee. Nothing is collected at this step.
+
+00:01:04.933 --> 00:01:12.833
+The first revision adds a 12-month commitment. That contradicts the requirement to keep cancellation flexible.
+
+00:01:12.833 --> 00:01:22.567
+The original checklist stays fixed. The freelancer submits a corrected version for another review.
+
+00:01:22.567 --> 00:01:30.800
+Each outcome is checked. Passing findings do not charge the client; the payment still waits for explicit approval.
+
+00:01:30.800 --> 00:01:37.700
+The client approves the delivered version. In the connected workspace, this requests PayPal capture.
+
+00:01:37.700 --> 00:01:53.600
+This is the simulated receipt. The connected workflow records the result only after PayPal confirms it.
+
+00:01:53.600 --> 00:02:03.000
+PayPal handles authorization and capture. GenLayer checks captured evidence. The client controls approval.
+
+00:02:03.000 --> 00:02:11.033
+Explore the working prototype and public source: revisionpay.vercel.app

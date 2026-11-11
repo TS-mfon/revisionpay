@@ -77,6 +77,7 @@ export default function AgreementPage({
     setCanSwitchView(d.canSwitchView || false);
     setInvitationRedeemed(Boolean(d.agreement.invitation?.redeemed));
     setSetup(d.setup);
+    setLink(d.invitationUrl || "");
     if (
       d.agreement.mode !== "demo" &&
       d.agreement.payment.status === "ORDER_CREATED" &&
@@ -330,7 +331,11 @@ export default function AgreementPage({
           <div className="agreement-title">
             <div>
               <div className="heading-meta">
-                <Status agreement={a} />
+                {a.state === "DRAFT" && !seller ? (
+                  <Badge tone="gray">Freelancer preparing agreement</Badge>
+                ) : (
+                  <Status agreement={a} />
+                )}
                 {a.mode === "sandbox" && (
                   <Badge tone="amber">PayPal sandbox · test funds</Badge>
                 )}
@@ -375,13 +380,32 @@ export default function AgreementPage({
               </p>
             </div>
           )}
-          {link && seller && !demo && !invitationRedeemed && !terminal && (
-            <ClientInvitation
-              link={link}
-              delivery={delivery}
-              testPage={Boolean(testPage)}
-            />
-          )}
+          {seller &&
+            !demo &&
+            a.state !== "DRAFT" &&
+            (link ? (
+              <ClientInvitation
+                link={link}
+                delivery={delivery}
+                testPage={Boolean(testPage)}
+                opened={invitationRedeemed}
+              />
+            ) : (
+              <section className="share-panel" aria-label="Client invitation">
+                <h2>Your client link</h2>
+                <p>
+                  This older agreement needs a reusable link. Save it once, then
+                  return here to copy it whenever you need it. Its previous
+                  invitation link will be replaced.
+                </p>
+                <Button
+                  busy={busy === "invite"}
+                  onClick={() => action("invite")}
+                >
+                  Save reusable client link
+                </Button>
+              </section>
+            ))}
           {legacy && (
             <div className="notice warning">
               <div>
@@ -705,7 +729,23 @@ export default function AgreementPage({
           </details>
           {!paid && !terminal && (
             <section className="next-step" id="next-step">
-              {a.state === "DRAFT" ? (
+              {a.state === "DRAFT" && !seller ? (
+                <>
+                  <h2>Your freelancer is preparing the agreement.</h2>
+                  <p>
+                    You can review the draft now. You’ll authorize the fee after
+                    the freelancer finishes setup and freezes the requirements.
+                  </p>
+                  {a.workPostId && (
+                    <Link
+                      className="button secondary"
+                      href={"/explore/" + a.workPostId}
+                    >
+                      Back to your posted work
+                    </Link>
+                  )}
+                </>
+              ) : a.state === "DRAFT" ? (
                 <>
                   <p className="eyebrow">REVIEW BEFORE SENDING</p>
                   <h2>
@@ -836,24 +876,10 @@ export default function AgreementPage({
                       Share the private invitation so {a.clientName} can review
                       the agreement and authorize {amount}.
                     </p>
-                    {!invitationRedeemed &&
-                      a.payment.status === "NONE" &&
-                      !link && (
-                        <Button
-                          className="secondary"
-                          busy={busy === "invite"}
-                          onClick={() => action("invite")}
-                        >
-                          Create a fresh invitation link
-                        </Button>
-                      )}
                     <p className="small-text">
                       {invitationRedeemed
-                        ? "Your client has opened the invitation. They can return to the agreement in that browser" +
-                          (a.clientEmail
-                            ? ", or sign in with the Google account matching the invited email."
-                            : ". Keep that browser’s agreement address; no email recovery is set up for this test.")
-                        : "If you reload before copying the link, create a fresh one here. The previous unused link will stop working."}
+                        ? "Your client has opened the invitation. You can still copy the same link above whenever they need it."
+                        : "Your private invitation link stays available above, including after you leave or reload this page."}
                     </p>
                   </>
                 ) : (

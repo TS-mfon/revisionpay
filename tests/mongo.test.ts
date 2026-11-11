@@ -3,6 +3,7 @@ import { MongoMemoryServer } from "mongodb-memory-server";
 import { MongoClient } from "mongodb";
 import { MongoStore } from "../apps/web/src/server/store";
 import { agreement } from "./helpers";
+import type { WorkPost } from "../packages/domain/src/work";
 
 describe("MongoDB persistence and leases", () => {
   let server: MongoMemoryServer;
@@ -35,6 +36,58 @@ describe("MongoDB persistence and leases", () => {
     ]);
     expect(results.filter(Boolean)).toHaveLength(1);
     expect((await store.getAgreement(a.id))!.version).toBe(1);
+  });
+  it("persists work posts with atomic invitations and literal, private discovery filters", async () => {
+    const a = agreement();
+    const post: WorkPost = {
+      id: a.id,
+      version: 0,
+      clientTenantId: "posting-client",
+      clientName: "Client",
+      clientEmail: "private@example.com",
+      mode: "sandbox",
+      title: "Fix (pricing) copy",
+      description: "A detailed description for a public work listing.",
+      sourceUrl: a.sourceUrl,
+      amountMinor: a.amountMinor,
+      requirements: a.requirements,
+      status: "OPEN",
+      applications: [],
+      createdAt: a.createdAt,
+      updatedAt: a.updatedAt,
+    };
+    await store.createWorkPost(post);
+    const query = {
+      view: "open" as const,
+      mode: "sandbox" as const,
+      q: "(pricing)",
+      page: 1,
+    };
+    expect((await store.listWorkPosts(query)).map((p) => p.id)).toContain(
+      post.id,
+    );
+    expect(await store.listWorkPosts({ ...query, q: ".*" })).toHaveLength(0);
+    expect(
+      await store.listWorkPosts({
+        ...query,
+        view: "posts",
+        tenantId: "other-client",
+      }),
+    ).toHaveLength(0);
+    const left = (await store.getWorkPost(post.id))!,
+      right = (await store.getWorkPost(post.id))!;
+    left.status = "INVITED";
+    right.status = "CLOSED";
+    expect(
+      (
+        await Promise.all([
+          store.saveWorkPost(left, 0),
+          store.saveWorkPost(right, 0),
+        ])
+      ).filter(Boolean),
+    ).toHaveLength(1);
+    expect((await store.getWorkPost(post.id))!.version).toBe(1);
+    expect(await store.listWorkPosts(query)).toHaveLength(0);
   });
   it("preserves wakeups made while a worker holds the lease", async () => {
     const a = agreement();

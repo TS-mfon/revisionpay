@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { Check, Copy } from "lucide-react";
 import { Button } from "./ui";
 
@@ -7,31 +7,37 @@ export function ClientInvitation({
   link,
   delivery,
   testPage,
+  opened = false,
 }: {
   link: string;
   delivery: string;
   testPage: boolean;
+  opened?: boolean;
 }) {
   const [copied, setCopied] = useState(false);
   const [message, setMessage] = useState("");
-  const panel = useRef<HTMLElement>(null);
   useEffect(() => {
     setCopied(false);
-    panel.current?.scrollIntoView({ behavior: "smooth", block: "center" });
   }, [link]);
   return (
     <section
       id="client-invitation"
-      ref={panel}
       className="share-panel"
       aria-label="Client invitation"
     >
-      <h2>Next: share this link with your client</h2>
+      <h2>Your client invitation link</h2>
       <p>
         {delivery === "QUEUED"
           ? "An email is queued for delivery. You can also copy and share the link now."
-          : "No email has been sent. Copy this private link and send it to your client by message or email."}
+          : delivery === "LINK_READY" || delivery === "UNAVAILABLE"
+            ? "No email has been sent. Copy this private link and send it to your client by message or email."
+            : "Copy this private link whenever you need it. It stays available after you leave this page and after your client opens it."}
       </p>
+      {opened && (
+        <p className="small-text">
+          Your client has opened this agreement. The same link lets them return.
+        </p>
+      )}
       <label>
         Private invitation link
         <input readOnly value={link} onFocus={(e) => e.target.select()} />

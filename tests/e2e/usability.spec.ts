@@ -201,15 +201,21 @@ test("testing a client invitation in the same browser preserves both roles and a
   page,
   context,
   baseURL,
+  browser,
 }, info) => {
   const { a, store } = await seed(context, baseURL!, info, true);
   await page.goto("/agreements/" + a.id + "?view=freelancer");
-  await page
-    .getByRole("button", { name: "Create a fresh invitation link" })
-    .click();
+  await page.getByRole("button", { name: "Save reusable client link" }).click();
   await expect(
     page.getByRole("region", { name: "Client invitation" }),
   ).toContainText("No email has been sent.");
+  const savedLink = await page
+    .getByLabel("Private invitation link")
+    .inputValue();
+  await page.reload();
+  await expect(page.getByLabel("Private invitation link")).toHaveValue(
+    savedLink,
+  );
   await page.getByRole("link", { name: "Open client view to test" }).click();
   await expect(
     page.getByRole("region", { name: "Agreement progress" }),
@@ -228,11 +234,35 @@ test("testing a client invitation in the same browser preserves both roles and a
     page.getByRole("region", { name: "Agreement progress" }),
   ).toContainText("You’re viewing as the freelancer");
   await expect(
-    page.getByRole("button", { name: "Create a fresh invitation link" }),
+    page.getByRole("button", { name: "Save reusable client link" }),
   ).toHaveCount(0);
   await expect(
     page.getByText("Your client has opened the invitation.", { exact: false }),
   ).toBeVisible();
+  await expect(page.getByLabel("Private invitation link")).toHaveValue(
+    savedLink,
+  );
+  await page.reload();
+  await expect(page.getByLabel("Private invitation link")).toHaveValue(
+    savedLink,
+  );
+  const returningClient = await browser.newContext();
+  try {
+    const clientPage = await returningClient.newPage();
+    await clientPage.goto(savedLink);
+    await expect(
+      clientPage.getByRole("region", { name: "Agreement progress" }),
+    ).toContainText("client");
+    expect(
+      (
+        await returningClient.request.get(baseURL + "/api/agreements/" + a.id, {
+          headers: { "X-RevisionPay-View": "freelancer" },
+        })
+      ).status(),
+    ).toBe(401);
+  } finally {
+    await returningClient.close();
+  }
   await page.getByRole("link", { name: "Switch to client view" }).click();
   await page.getByRole("button", { name: "Sign out", exact: true }).click();
   await expect(page).toHaveURL(baseURL + "/");

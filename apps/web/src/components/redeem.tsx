@@ -51,9 +51,9 @@ export function Redeem({ owner = false }: { owner?: boolean }) {
           <>
             <ErrorBox message={error} />
             <p>
-              If you already opened this link, return from the same browser. You
-              can also sign in with the Google account matching the email your
-              freelancer invited.
+              For work posted in the Explorer, sign in with the account that
+              posted the work. For an older invitation, ask your freelancer to
+              copy the reusable link from their agreement.
             </p>
             {token.current && (
               <Button onClick={redeem} busy={busy}>
